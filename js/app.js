@@ -1,5 +1,5 @@
 /* =====================================================================
-   МУ Подготовка — Биология и Химия
+   МедПанда — Биология и Химия за МУ
    Локално приложение за един потребител. Всичко се пази в localStorage.
    ===================================================================== */
 (function () {
@@ -15,40 +15,47 @@ var MODELS = [
   ['claude-sonnet-5-5', 'Claude Sonnet 5.5 — по-бърза и по-евтина'],
   ['claude-haiku-4-5', 'Claude Haiku 4.5 — най-евтина, по-повърхностна']
 ];
+/* ранг според нивото; нивото расте с XP */
 var RANKS = [
-  [0, 'Санитар', '🧹'],
-  [150, 'Медицински брат / сестра', '🩹'],
-  [400, 'Кандидат-студент', '📚'],
-  [800, 'Студент', '🎓'],
-  [1500, 'Стажант', '🩺'],
-  [2500, 'Ординатор', '💉'],
-  [4000, 'Доктор', '👨‍⚕️'],
-  [6000, 'Специалист', '🔬'],
-  [9000, 'Доцент', '🏛️'],
-  [13000, 'Професор', '🧠']
+  [1, 'Санитар', '🧹'],
+  [3, 'Медицински кандидат', '📚'],
+  [5, 'Студент', '🎓'],
+  [7, 'Старши студент', '📖'],
+  [9, 'Стажант', '🩺'],
+  [11, 'Лекар', '💉'],
+  [14, 'Доктор', '👨‍⚕️'],
+  [17, 'Специализант', '🔬'],
+  [20, 'Медицински експерт', '🏅']
 ];
-var SRS_STEPS = [1, 3, 7];       // дни до следващото повторение
+var STREAK_MS = [3, 7, 14, 30, 50, 100];
+var SRS_STEPS = [1, 3, 7];
 var LETTERS = ['А', 'Б', 'В', 'Г', 'Д', 'Е'];
-var XP = { mcq: 10, term: 15, termTypo: 8, hint: 5, exam: 6, bossFirst: 150, bossAgain: 40 };
-var RAPID_N = 20, RAPID_SEC = 15, TERMS_N = 15, BOSS_N = 20, BOSS_MIN = 25;
+var XP = { practice: 10, challenge: 15, term: 15, termTypo: 8, hint: 5, retry: 5, review: 10, lessonBonus: 10, perfect: 10, exam: 6, bossFirst: 150, bossAgain: 40, block: 100 };
+var RAPID_N = 20, BOSS_N = 20, BOSS_MIN = 25, TERMS_N = 12, REVIEW_N = 15, MASTER = 80;
+var GOOD = ['Правилно!', 'Браво!', 'Точно така!', 'Отлично!', 'Като истински лекар!', 'Чудесно!'];
+var BAD = ['Не се отказвай!', 'Почти! Ето защо:', 'Грешките са част от ученето 💪', 'Запомни това — ще го видиш пак.', 'Нищо страшно — сега ще го научиш.'];
+var ICONS = {
+  bio: { p1: '🔤', p2: '🪜', c1: '💧', c2: '🍞', c3: '🧶', c4: '🧬', c5: '🦠', c6: '🧫', c7: '🫧', c8: '📦', c9: '⚡', c10: '🎯',
+         b1: '🔋', b2: '🍬', b3: '🔄', b4: '⚙️', b5: '🌿', b6: '📑', b7: '📝', b8: '🧩', b9: '➗', b10: '🔀' },
+  chem: { s1: '🔤', s2: '🧮', g1: '⚛️', g2: '📊', g3: '🔗', g4: '📐', g5: '🧪', g6: '💧', g7: '🌫️', g8: '⚡', g9: '🍋',
+          g10: '🧂', g11: '⏱️', g12: '⚖️', g13: '🔥', g14: '🔁' }
+};
 
 /* ================= ДАННИ ================= */
 var RAW = window.SUBJECT_DATA || {};
 var CUSTOM = window.CUSTOM_DATA || {};
 var SUBJ = {
-  bio: {
-    id: 'bio', name: 'Биология за МУ', short: 'Биология',
-    blocks: { '0': 'Основи — започни оттук', 'I': 'Блок I · Клетката и молекулите', 'II': 'Блок II · Процесите в клетката' },
-    order: ['0', 'I', 'II'], topics: []
-  },
-  chem: {
-    id: 'chem', name: 'Химия', short: 'Химия',
-    blocks: { '0': 'Блок 0 · Стартова площадка', 'I': 'Блок I · Обща химия', 'II': 'Блок II · Неорганична химия', 'III': 'Блок III · Органична химия' },
-    order: ['0', 'I', 'II', 'III'], topics: []
-  }
+  bio: { id: 'bio', name: 'Биология за МУ', short: 'Биология', icon: '🧬', acc: 'dna',
+    blocks: { '0': 'Основи — започни оттук', 'I': 'Клетката и молекулите', 'II': 'Процесите в клетката' },
+    order: ['0', 'I', 'II'], topics: [] },
+  chem: { id: 'chem', name: 'Химия', short: 'Химия', icon: '⚗️', acc: 'flask',
+    blocks: { '0': 'Стартова площадка', 'I': 'Обща химия', 'II': 'Неорганична химия', 'III': 'Органична химия' },
+    order: ['0', 'I', 'II', 'III'], topics: [] }
 };
+function blockLabel(b) { return b === '0' ? 'Блок 0' : 'Блок ' + b; }
 
-function normTopic(raw, sid) {
+function normQ(q) { return { s: q.s, o: q.o, a: q.a, why: q.why || q.e || '', trap: q.trap || '' }; }
+function normTopic(raw) {
   var t = {
     id: raw.id, no: raw.no, block: String(raw.block || '0'), title: raw.title || 'Без заглавие',
     brief: raw.brief || '', anchor: raw.anchor || raw.image || '', diagram: null,
@@ -61,23 +68,18 @@ function normTopic(raw, sid) {
   if (raw.svg) t.diagram = { html: raw.svg, cap: raw.cap || '', kind: 'chem' };
   return t;
 }
-function normQ(q) { return { s: q.s, o: q.o, a: q.a, why: q.why || q.e || '', trap: q.trap || '' }; }
-
 (function buildData() {
-  /* --- биология --- */
   var B = RAW.bio || { topics: [], traps: [], cues: {}, dg: {} };
   (B.topics || []).forEach(function (raw) {
-    var t = normTopic(raw, 'bio');
+    var t = normTopic(raw);
     if (raw.dg && B.dg && B.dg[raw.dg]) t.diagram = { html: B.dg[raw.dg], cap: raw.dgcap || '', kind: 'bio' };
     t.open.forEach(function (o, i) { o.cues = (B.cues || {})[t.id + '-o' + i] || null; });
     t.twins = (B.traps || []).filter(function (x) { return x.t === t.id; }).map(function (x) { return { a: x.a, b: x.b, n: x.n }; });
     SUBJ.bio.topics.push(t);
   });
-  /* --- химия --- */
   var C = RAW.chem || { topics: [], extra: {} };
   (C.topics || []).forEach(function (raw) {
-    var t = normTopic(raw, 'chem');
-    var e = (C.extra || {})[t.id];
+    var t = normTopic(raw), e = (C.extra || {})[t.id];
     if (e) {
       if (e.image) t.anchor = e.image;
       if (e.skeleton) t.skeleton = e.skeleton;
@@ -87,25 +89,21 @@ function normQ(q) { return { s: q.s, o: q.o, a: q.a, why: q.why || q.e || '', tr
     }
     SUBJ.chem.topics.push(t);
   });
-  /* --- допълнителни данни (data-custom.js) --- */
   ['bio', 'chem'].forEach(function (sid) {
     var X = CUSTOM[sid]; if (!X) return;
     var S0 = SUBJ[sid];
-    (X.topics || []).forEach(function (raw) { S0.topics.push(normTopic(raw, sid)); });
-    function target(item) {
-      var t = topicById(sid, item.topic);
-      if (t) return t;
-      var blk = String(item.block || S0.order[S0.order.length - 1]);
-      var id = 'extra-' + blk;
+    (X.topics || []).forEach(function (raw) { S0.topics.push(normTopic(raw)); });
+    function target(it) {
+      var t = topicById(sid, it.topic); if (t) return t;
+      var blk = String(it.block || S0.order[S0.order.length - 1]), id = 'extra-' + blk;
       t = topicById(sid, id);
-      if (!t) { t = normTopic({ id: id, no: '+', block: blk, title: 'Допълнителни материали' }, sid); S0.topics.push(t); }
+      if (!t) { t = normTopic({ id: id, no: '+', block: blk, title: 'Допълнителни материали' }); S0.topics.push(t); }
       return t;
     }
     (X.terms || []).forEach(function (x) { if (x.term && x.def) target(x).terms.push([x.term, x.def]); });
     (X.open || []).forEach(function (x) { if (x.p) target(x).open.push({ p: x.p, must: x.must || [], cues: x.cues || null }); });
     (X.q || []).forEach(function (x) { if (x.s && x.o) target(x).q.push(normQ(x)); });
   });
-  /* подреждане по блокове, като се запазва редът вътре в блока */
   ['bio', 'chem'].forEach(function (sid) {
     var S0 = SUBJ[sid];
     S0.topics = S0.order.reduce(function (acc, b) { return acc.concat(S0.topics.filter(function (t) { return t.block === b; })); }, []);
@@ -117,8 +115,7 @@ function K(sid, tid, type, i) { return sid + '|' + tid + '|' + type + '|' + i; }
 function item(key) {
   var p = String(key).split('|'); if (p.length !== 4 || !SUBJ[p[0]]) return null;
   var t = topicById(p[0], p[1]); if (!t) return null;
-  var i = +p[3], d = null;
-  if (p[2] === 'q') d = t.q[i]; else if (p[2] === 't') d = t.terms[i]; else if (p[2] === 'o') d = t.open[i];
+  var i = +p[3], d = p[2] === 'q' ? t.q[i] : p[2] === 't' ? t.terms[i] : p[2] === 'o' ? t.open[i] : null;
   if (!d) return null;
   return { key: key, sid: p[0], t: t, type: p[2], i: i, d: d };
 }
@@ -126,24 +123,21 @@ function keysOf(sid, type, filter) {
   var out = [];
   SUBJ[sid].topics.forEach(function (t) {
     if (filter && !filter(t)) return;
-    var arr = type === 'q' ? t.q : type === 't' ? t.terms : t.open;
-    arr.forEach(function (_, i) { out.push(K(sid, t.id, type, i)); });
+    (type === 'q' ? t.q : type === 't' ? t.terms : t.open).forEach(function (_, i) { out.push(K(sid, t.id, type, i)); });
   });
   return out;
 }
+function topicIcon(sid, t) { return (ICONS[sid] || {})[t.id] || '📘'; }
 
 /* ================= СЪСТОЯНИЕ ================= */
 function freshState() {
   return {
-    v: 1, subj: 'bio', xp: 0, days: {}, bestStreak: 0, mastered: 0,
-    mcq: {},      // key -> 1 | 0 (последен отговор)
-    terms: {},    // key -> {ok, n, right}
-    opens: {},    // key -> {draft, best, n, last:{...}}
-    srs: {},      // key -> {step, due, miss, added}
-    boss: {},     // sid|block -> {best, beaten, n}
-    mocks: [],    // [{d, sid, n, right, mark}]
-    rapidBest: {},
-    settings: { model: DEFAULT_MODEL, goal: 15 }
+    v: 2, subj: 'bio', xp: 0, xpDays: {}, days: {}, bestStreak: 0, mastered: 0,
+    stats: { answered: 0, correct: 0 },
+    cnt: { lessons: 0, lessonsBio: 0, lessonsChem: 0, perfect: 0, terms: 0, ai: 0, ai90: 0, bossWins: 0, mocks: 0, mock55: 0, comboMax: 0 },
+    mcq: {}, terms: {}, opens: {}, srs: {}, boss: {}, mocks: [], rapidBest: {},
+    lessons: {}, blocksMastered: {}, ach: {}, streakMs: {},
+    settings: { model: DEFAULT_MODEL, goalXP: 30, freeNav: false, calm: false }
   };
 }
 var S = load();
@@ -154,7 +148,10 @@ function load() {
   if (!s || typeof s !== 'object') return f;
   for (var k in f) if (s[k] === undefined) s[k] = f[k];
   s.settings = Object.assign({}, f.settings, s.settings || {});
+  s.cnt = Object.assign({}, f.cnt, s.cnt || {});
+  s.stats = Object.assign({}, f.stats, s.stats || {});
   if (!SUBJ[s.subj]) s.subj = 'bio';
+  s.v = 2;
   return s;
 }
 var saveT = null;
@@ -165,24 +162,31 @@ function getApiKey() { try { return localStorage.getItem(LS_KEY) || ''; } catch 
 function setApiKey(k) { try { if (k) localStorage.setItem(LS_KEY, k); else localStorage.removeItem(LS_KEY); } catch (e) { } }
 
 /* UI състояние (не се пази) */
-var U = { v: 'home', tid: null, oKey: null, picks: {}, run: null, rapid: null, exam: null, timer: null,
-  grading: {}, showKey: {}, showCues: {}, model: {}, scope: 'all', mockN: 30, mockBoth: false, examAll: false, keyShown: false };
+var U = { v: 'home', tid: null, oKey: null, L: null, rapid: null, exam: null, timer: null, celQ: [], celOn: false, newAch: [],
+  grading: {}, showKey: {}, showCues: {}, model: {}, scope: 'all', mockN: 20, mockBoth: false, examAll: false, keyShown: false };
 
 /* ================= ПОМОЩНИ ================= */
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function plain(s) { return String(s || '').replace(/<[^>]*>/g, ''); }
 function shuffle(a) { for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var x = a[i]; a[i] = a[j]; a[j] = x; } return a; }
+function pick(a) { return a[Math.floor(Math.random() * a.length)]; }
 function pad(n) { return (n < 10 ? '0' : '') + n; }
 function dstr(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
 function today() { return dstr(new Date()); }
 function addDays(s, n) { var p = s.split('-'); var d = new Date(+p[0], +p[1] - 1, +p[2]); d.setDate(d.getDate() + n); return dstr(d); }
 function fmtDate(s) { var p = s.split('-'); return +p[2] + '.' + p[1]; }
+var WD = ['Нд', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+function wday(s) { var p = s.split('-'); return WD[new Date(+p[0], +p[1] - 1, +p[2]).getDay()]; }
 function mmss(s) { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + pad(s % 60); }
 function pl(n, one, many) { return n === 1 ? one : many; }
 function pct(a, b) { return b ? Math.round(100 * a / b) : 0; }
 function cur() { return SUBJ[S.subj]; }
-function markOf(p) { return Math.round((2 + 4 * p) * 100) / 100; }   // p = 0..1 → оценка 2–6
+function markOf(p) { return Math.round((2 + 4 * p) * 100) / 100; }
 function markWord(n) { if (n >= 5.5) return 'Отличен'; if (n >= 4.5) return 'Много добър'; if (n >= 3.5) return 'Добър'; if (n >= 3) return 'Среден'; return 'Слаб'; }
+function calm() { return S.settings.calm || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches); }
+function P(mood, acc, size, cls) { return window.panda(mood, acc, { size: size, cls: cls, scrub: S.subj === 'chem' ? '#6D5DF6' : '#12B886' }); }
+function ring(p, inner, size, color) { return '<div class="ring" style="--p:' + Math.max(0, Math.min(100, p)) + (size ? ';--s:' + size + 'px' : '') + (color ? ';--c:' + color : '') + '">' + inner + '</div>'; }
+function bar(p, cls) { return '<div class="bar ' + (cls || '') + '"><i style="width:' + Math.max(0, Math.min(100, p)) + '%"></i></div>'; }
 
 function norm(x) {
   return String(x || '').toLowerCase().replace(/ё/g, 'е').replace(/[‐‑–—]/g, '-')
@@ -190,7 +194,7 @@ function norm(x) {
 }
 function lev(a, b) {
   if (a === b) return 0; if (!a.length) return b.length; if (!b.length) return a.length;
-  var prev = [], curr = [], i, j;
+  var prev = [], curr, i, j;
   for (j = 0; j <= b.length; j++) prev[j] = j;
   for (i = 1; i <= a.length; i++) {
     curr = [i];
@@ -199,7 +203,7 @@ function lev(a, b) {
   }
   return prev[b.length];
 }
-/* Приемливи отговори за даден термин: „А / Б“ → А или Б; пояснения в скоби не са задължителни. */
+/* „А / Б“ → А или Б; поясненията в скоби не са задължителни */
 function termAnswers(term) {
   var out = [];
   String(term).split('/').forEach(function (part) {
@@ -225,52 +229,86 @@ function maskDef(def, term) {
   String(term).split('/').forEach(function (part) {
     var w = part.replace(/\s*\([^)]*\)/g, '').trim();
     if (w.length < 4) return;
-    var re = new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-    out = out.replace(re, '<span class="blank"></span>');
+    out = out.replace(new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '<span class="blank"></span>');
   });
   return out;
 }
 
 /* ================= ПРОГРЕСИЯ ================= */
-function rankOf(xp) { var r = RANKS[0], i; for (i = 0; i < RANKS.length; i++) if (xp >= RANKS[i][0]) r = RANKS[i]; return r; }
-function nextRank(xp) { for (var i = 0; i < RANKS.length; i++) if (xp < RANKS[i][0]) return RANKS[i]; return null; }
-function dayDone(d) { return (S.days[d] || 0) >= S.settings.goal; }
+function xpForLevel(L) { return 30 * L * (L - 1); }
+function levelOf(xp) { return Math.max(1, Math.floor((1 + Math.sqrt(1 + 4 * xp / 30)) / 2)); }
+function rankOf(L) { var r = RANKS[0]; RANKS.forEach(function (x) { if (L >= x[0]) r = x; }); return r; }
+function nextRankOf(L) { for (var i = 0; i < RANKS.length; i++) if (RANKS[i][0] > L) return RANKS[i]; return null; }
+function goal() { return S.settings.goalXP; }
+function todayXP() { return S.xpDays[today()] || 0; }
+function dayDone(d) { return (S.xpDays[d] || 0) >= goal(); }
 function streak() {
   var d = today(), n = 0;
   if (!dayDone(d)) d = addDays(d, -1);
   while (dayDone(d)) { n++; d = addDays(d, -1); }
   return n;
 }
-/* units = брой отговорени елемента днес, xp = спечелени точки */
-function activity(units, xp) {
-  var t = today(), wasDone = dayDone(t), oldRank = rankOf(S.xp);
-  S.days[t] = (S.days[t] || 0) + (units || 0);
-  S.xp = Math.max(0, S.xp + (xp || 0));
-  if (!wasDone && dayDone(t)) {
+/* единствената точка, през която влизат XP — тук се засичат цел, серия и нива */
+function addXP(xp, units) {
+  var t = today(), before = S.xpDays[t] || 0, oldL = levelOf(S.xp), oldR = rankOf(oldL);
+  xp = Math.max(0, Math.round(xp || 0));
+  S.xp += xp; S.xpDays[t] = before + xp;
+  if (units) S.days[t] = (S.days[t] || 0) + units;
+  if (before < goal() && before + xp >= goal()) {
     var st = streak();
     if (st > S.bestStreak) S.bestStreak = st;
-    toast('🔥 Дневната цел е изпълнена! Серия: ' + st + ' ' + pl(st, 'ден', 'дни') + '.', true);
+    if (STREAK_MS.indexOf(st) >= 0 && !S.streakMs[st]) {
+      S.streakMs[st] = t;
+      celebrate({ mood: 'celebrate', acc: 'steth', title: '🔥 ' + st + ' дни серия!', sub: 'Д-р Панда е впечатлен. Ритъмът ти е като на здраво сърце — продължавай!', confetti: true });
+    } else toast('🔥 Дневната цел е изпълнена! Серия: ' + st + ' ' + pl(st, 'ден', 'дни'), 'gold');
   }
-  var nr = rankOf(S.xp);
-  if (nr[0] > oldRank[0]) toast(nr[2] + ' Повишение! Вече си „' + nr[1] + '“.', true);
-  save(); paintHeader();
+  var nl = levelOf(S.xp);
+  if (nl > oldL) {
+    var nr = rankOf(nl);
+    celebrate({ mood: 'celebrate', acc: 'cap', title: 'НОВО НИВО!', big: 'Ниво ' + nl,
+      sub: nr[1] !== oldR[1] ? oldR[2] + ' ' + oldR[1] + ' → ' + nr[2] + ' ' + nr[1] : 'Още малко и ставаш ' + ((nextRankOf(nl) || nr)[1]) + '!', confetti: true });
+  }
+  checkAch(); save(); paintChrome();
 }
-function toast(msg, gold) {
-  var box = document.getElementById('toasts'), el = document.createElement('div');
-  el.className = 'toast' + (gold ? ' gold' : ''); el.textContent = msg; box.appendChild(el);
-  setTimeout(function () { el.remove(); }, gold ? 4200 : 2600);
+function logAnswer(ok) { S.stats.answered++; if (ok) S.stats.correct++; }
+
+/* ================= ПОСТИЖЕНИЯ ================= */
+var ACH = [
+  { id: 'first', b: '🩺', t: 'Първа визитация', d: 'Завърши първия си урок', f: function () { return S.cnt.lessons >= 1; } },
+  { id: 'l10', b: '📚', t: 'Дежурство', d: 'Завърши 10 урока', f: function () { return S.cnt.lessons >= 10; } },
+  { id: 'l30', b: '🏥', t: 'Главен лекар', d: 'Завърши 30 урока', f: function () { return S.cnt.lessons >= 30; } },
+  { id: 'perfect', b: '🎯', t: 'Безупречна диагноза', d: 'Урок без нито една грешка', f: function () { return S.cnt.perfect >= 1; } },
+  { id: 'both', b: '🧪', t: 'Двоен специалист', d: 'Урок и по биология, и по химия', f: function () { return S.cnt.lessonsBio >= 1 && S.cnt.lessonsChem >= 1; } },
+  { id: 's3', b: '🔥', t: 'Пулсът се усеща', d: 'Серия от 3 дни', f: function () { return Math.max(S.bestStreak, streak()) >= 3; } },
+  { id: 's7', b: '💓', t: 'Седмица в клиниката', d: 'Серия от 7 дни', f: function () { return Math.max(S.bestStreak, streak()) >= 7; } },
+  { id: 's30', b: '❤️‍🔥', t: 'Желязно сърце', d: 'Серия от 30 дни', f: function () { return Math.max(S.bestStreak, streak()) >= 30; } },
+  { id: 'xp1k', b: '⭐', t: 'Хиляда точки', d: 'Събери 1000 XP', f: function () { return S.xp >= 1000; } },
+  { id: 'combo10', b: '⚡', t: 'Реанимация', d: 'Комбо 10 в Бърз огън', f: function () { return S.cnt.comboMax >= 10; } },
+  { id: 'terms50', b: '🔤', t: 'Медицински речник', d: '50 верни термина', f: function () { return S.cnt.terms >= 50; } },
+  { id: 'ai1', b: '🤖', t: 'Пред комисията', d: 'Първи AI-оценен отговор', f: function () { return S.cnt.ai >= 1; } },
+  { id: 'ai90', b: '📝', t: 'Чиста шестица', d: '90%+ на отворен въпрос', f: function () { return S.cnt.ai90 >= 1; } },
+  { id: 'boss', b: '👑', t: 'Победител', d: 'Победи шеф на блок', f: function () { return S.cnt.bossWins >= 1; } },
+  { id: 'block', b: '🏆', t: 'Владетел на блока', d: 'Овладей цял блок (' + MASTER + '%+)', f: function () { return Object.keys(S.blocksMastered).length >= 1; } },
+  { id: 'mock', b: '🎲', t: 'Пробен изпит', d: 'Завърши тест на случаен принцип', f: function () { return S.cnt.mocks >= 1; } },
+  { id: 'mock55', b: '🎓', t: 'Отличник', d: 'Оценка 5.50+ на тест', f: function () { return S.cnt.mock55 >= 1; } },
+  { id: 'fix10', b: '💪', t: 'Учи се от грешките', d: 'Овладей 10 грешки', f: function () { return S.mastered >= 10; } }
+];
+function checkAch() {
+  ACH.forEach(function (a) {
+    if (S.ach[a.id] || !a.f()) return;
+    S.ach[a.id] = today(); U.newAch.push(a);
+    toast(a.b + ' Ново постижение: „' + a.t + '“', 'ach');
+  });
 }
 
 /* ================= ГРЕШКИ / ПОВТОРЕНИЕ ================= */
-/* Грешен отговор → в „Грешките ми“ с повторение след 1, 3, 7 дни.
-   Верен отговор на падежа → следваща стъпка; след последната — овладян. */
 function record(key, ok) {
   var r = S.srs[key];
   if (!ok) {
     S.srs[key] = { step: 0, due: addDays(today(), SRS_STEPS[0]), miss: (r ? r.miss : 0) + 1, added: r ? r.added : today() };
   } else if (r && r.due <= today()) {
     r.step++;
-    if (r.step >= SRS_STEPS.length) { delete S.srs[key]; S.mastered++; toast('✅ Овладяно — махнато от „Грешките ми“.'); }
+    if (r.step >= SRS_STEPS.length) { delete S.srs[key]; S.mastered++; toast('✅ Овладяно — махнато от „Грешките ми“'); }
     else r.due = addDays(today(), SRS_STEPS[r.step]);
   }
   save();
@@ -278,30 +316,94 @@ function record(key, ok) {
 function mistakes(sid) { return Object.keys(S.srs).filter(function (k) { return item(k) && (!sid || k.indexOf(sid + '|') === 0); }); }
 function dueMistakes(sid) { var t = today(); return mistakes(sid).filter(function (k) { return S.srs[k].due <= t; }); }
 
-/* ================= ОВЛАДЯВАНЕ НА БЛОК ================= */
+/* ================= ОВЛАДЯВАНЕ ================= */
 function topicMastery(sid, t) {
-  var ok = 0, n = 0;
-  t.q.forEach(function (_, i) { n++; if (S.mcq[K(sid, t.id, 'q', i)] === 1) ok++; });
-  t.terms.forEach(function (_, i) { n++; var r = S.terms[K(sid, t.id, 't', i)]; if (r && r.ok) ok++; });
+  var ok = 0, n = 0, qok = 0, tok = 0;
+  t.q.forEach(function (_, i) { n++; if (S.mcq[K(sid, t.id, 'q', i)] === 1) { ok++; qok++; } });
+  t.terms.forEach(function (_, i) { n++; var r = S.terms[K(sid, t.id, 't', i)]; if (r && r.ok) { ok++; tok++; } });
   t.open.forEach(function (_, i) { n++; var r = S.opens[K(sid, t.id, 'o', i)]; if (r && r.best) ok += r.best / 100; });
-  return { ok: ok, n: n, pct: n ? Math.round(100 * ok / n) : 0 };
+  return { pct: n ? Math.round(100 * ok / n) : 0, qok: qok, qn: t.q.length, tok: tok, tn: t.terms.length };
 }
 function blockMastery(sid, b) {
-  var ok = 0, n = 0, nq = 0;
-  SUBJ[sid].topics.forEach(function (t) { if (t.block !== b) return; var m = topicMastery(sid, t); ok += m.ok; n += m.n; nq += t.q.length; });
-  return { pct: n ? Math.round(100 * ok / n) : 0, n: n, nq: nq };
+  var sum = 0, n = 0, nq = 0;
+  SUBJ[sid].topics.forEach(function (t) { if (t.block !== b) return; sum += topicMastery(sid, t).pct; n++; nq += t.q.length; });
+  return { pct: n ? Math.round(sum / n) : 0, n: n, nq: nq };
 }
+function subjMastery(sid) {
+  var ts = SUBJ[sid].topics; if (!ts.length) return 0;
+  return Math.round(ts.reduce(function (s, t) { return s + topicMastery(sid, t).pct; }, 0) / ts.length);
+}
+function lessonDone(sid, tid) { var l = S.lessons[sid + '|' + tid]; return !!(l && l.done); }
+function topicStatus(sid, t, idx) {
+  var m = topicMastery(sid, t), done = lessonDone(sid, t.id);
+  if (m.pct >= MASTER) return 'done';
+  if (done || m.pct > 0) return 'prog';
+  var ts = SUBJ[sid].topics;
+  if (S.settings.freeNav || idx === 0 || lessonDone(sid, ts[idx - 1].id) || topicMastery(sid, ts[idx - 1]).pct >= MASTER) return 'new';
+  return 'locked';
+}
+function nextTopic(sid) {
+  var ts = SUBJ[sid].topics;
+  for (var i = 0; i < ts.length; i++) if (!lessonDone(sid, ts[i].id) && topicStatus(sid, ts[i], i) !== 'locked') return ts[i];
+  for (i = 0; i < ts.length; i++) if (topicMastery(sid, ts[i]).pct < MASTER) return ts[i];
+  return ts[0];
+}
+function checkBlocks(sid) {
+  SUBJ[sid].order.forEach(function (b) {
+    var m = blockMastery(sid, b), k = sid + '|' + b;
+    if (!m.n || m.pct < MASTER || S.blocksMastered[k]) return;
+    S.blocksMastered[k] = today();
+    celebrate({ mood: 'hero', acc: 'steth', title: '🏆 БЛОКЪТ Е ОВЛАДЯН!', big: SUBJ[sid].icon + ' ' + blockLabel(b) + ' · ' + SUBJ[sid].blocks[b], sub: '+' + XP.block + ' XP бонус. Д-р Панда сваля шапка!', confetti: true });
+    addXP(XP.block, 0);
+  });
+}
+function lessonEstimate(t) {
+  var np = Math.min(4, Math.ceil(t.q.length / 2)), nc = Math.min(3, t.q.length - np), nt = Math.min(3, t.terms.length);
+  return XP.lessonBonus + np * XP.practice + nc * XP.challenge + nt * XP.term;
+}
+
+/* ================= ПРАЗНУВАНЕ / СЪОБЩЕНИЯ ================= */
+function toast(msg, kind) {
+  var box = document.getElementById('toasts'), el = document.createElement('div');
+  el.className = 'toast' + (kind ? ' ' + kind : ''); el.textContent = msg; box.appendChild(el);
+  while (box.children.length > 3) box.firstChild.remove();
+  setTimeout(function () { el.remove(); }, kind ? 3800 : 2400);
+}
+function celebrate(c) { U.celQ.push(c); setTimeout(flushCel, 0); }
+function busyFlow() {
+  return (U.v === 'lesson' && U.L && !U.L.done) || (U.v === 'rapid' && U.rapid && U.rapid.at < U.rapid.list.length) || (U.exam && !U.exam.done);
+}
+function flushCel() {
+  var ov = document.getElementById('overlay');
+  if (U.celOn || ov.innerHTML || busyFlow() || !U.celQ.length) return;
+  var c = U.celQ.shift();
+  U.celOn = true;
+  ov.innerHTML = '<div class="ov"><div class="sheet celebrate">' + P(c.mood, c.acc, null) +
+    '<h2>' + esc(c.title) + '</h2>' + (c.big ? '<div class="big">' + esc(c.big) + '</div>' : '') +
+    (c.sub ? '<p class="muted" style="font-weight:700">' + esc(c.sub) + '</p>' : '') +
+    '<button class="btn block big mt" id="primary" data-act="celClose">Продължи</button></div></div>';
+  if (c.confetti) confetti();
+  var b = document.getElementById('primary'); if (b) b.focus();
+}
+function confetti() {
+  if (calm()) return;
+  var box = document.createElement('div'), cols = ['#12B886', '#6D5DF6', '#FFC233', '#FF7A1A', '#FF5A6E', '#0EA5E9', '#9B5DE5'], h = '';
+  box.className = 'confetti';
+  for (var i = 0; i < 60; i++) h += '<i style="left:' + Math.random() * 100 + '%;background:' + pick(cols) + ';animation-duration:' + (1.6 + Math.random() * 1.6).toFixed(2) + 's;animation-delay:' + (Math.random() * 0.5).toFixed(2) + 's;transform:rotate(' + Math.round(Math.random() * 180) + 'deg)"></i>';
+  box.innerHTML = h; document.body.appendChild(box);
+  setTimeout(function () { box.remove(); }, 3800);
+}
+function sheet(html) { document.getElementById('overlay').innerHTML = '<div class="ov" data-act="ovBg"><div class="sheet">' + html + '</div></div>'; }
+function closeOverlay() { document.getElementById('overlay').innerHTML = ''; U.celOn = false; setTimeout(flushCel, 50); }
 
 /* ================= CLAUDE API ================= */
 function ApiError(code, msg) { this.code = code; this.message = msg; }
-/* Директно извикване от браузъра. Опитва първо с JSON схема и резервен модел при отказ
-   (fallbacks), а ако API-то откаже някоя от екстрите (400) — по-проста заявка. */
+/* Директна заявка от браузъра. Първо с JSON схема и резервен модел при отказ (fallbacks);
+   ако API-то откаже някоя екстра с 400 — по-проста заявка. */
 function claude(opts) {
   var key = getApiKey();
   if (!key) return Promise.reject(new ApiError('nokey', 'Няма въведен API ключ. Добави го в „Настройки“.'));
-  var model = S.settings.model || DEFAULT_MODEL;
-  var isHaiku = /haiku/.test(model);
-  var canFallback = /opus-5|sonnet-5-5|fable/.test(model);
+  var model = S.settings.model || DEFAULT_MODEL, isHaiku = /haiku/.test(model), canFallback = /opus-5|sonnet-5-5|fable/.test(model);
   function build(withSchema, withFallback) {
     var b = { model: model, max_tokens: opts.maxTokens || 16000, messages: [{ role: 'user', content: opts.prompt }] };
     if (opts.system) b.system = opts.system;
@@ -314,29 +416,20 @@ function claude(opts) {
   if (canFallback) variants.push(build(true, true));
   variants.push(build(true, false));
   if (opts.schema) variants.push(build(false, false));
-
   var lastErr = null;
   function attempt(i) {
     if (i >= variants.length) return Promise.reject(lastErr || new ApiError('bad', 'Заявката не успя.'));
-    var v = variants[i];
-    var headers = {
-      'content-type': 'application/json',
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    };
+    var v = variants[i], headers = { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' };
     if (v.beta) headers['anthropic-beta'] = v.beta;
     return fetch(API_URL, { method: 'POST', headers: headers, body: JSON.stringify(v.body) })
       .catch(function () { throw new ApiError('net', 'Няма връзка с api.anthropic.com. Провери интернета.'); })
       .then(function (res) {
         if (res.ok) return res.json().then(function (d) {
           if (d.stop_reason === 'refusal') throw new ApiError('refusal', 'Моделът отказа да оцени този отговор. Опитай да го преформулираш.');
-          var text = (d.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('\n');
-          return { text: text, cut: d.stop_reason === 'max_tokens' };
+          return { text: (d.content || []).filter(function (b) { return b.type === 'text'; }).map(function (b) { return b.text; }).join('\n'), cut: d.stop_reason === 'max_tokens' };
         });
         return res.json().catch(function () { return {}; }).then(function (j) {
-          var m = (j && j.error && j.error.message) || '';
-          var s = res.status;
+          var m = (j && j.error && j.error.message) || '', s = res.status;
           if (s === 400) { lastErr = new ApiError('bad', 'Заявката беше отхвърлена (400). ' + m); return attempt(i + 1); }
           if (s === 401) throw new ApiError('auth', 'Невалиден API ключ (401). Провери го в „Настройки“.');
           if (s === 403) throw new ApiError('perm', 'Ключът няма достъп до този модел (403). ' + m);
@@ -349,22 +442,17 @@ function claude(opts) {
   }
   return attempt(0);
 }
-
 var GRADE_SCHEMA = {
   type: 'object',
   properties: {
-    score: { type: 'integer' },
-    summary: { type: 'string' },
-    covered: { type: 'array', items: { type: 'string' } },
-    missed: { type: 'array', items: { type: 'string' } },
-    missed_terms: { type: 'array', items: { type: 'string' } },
-    errors: { type: 'array', items: { type: 'string' } },
+    score: { type: 'integer' }, summary: { type: 'string' },
+    covered: { type: 'array', items: { type: 'string' } }, missed: { type: 'array', items: { type: 'string' } },
+    missed_terms: { type: 'array', items: { type: 'string' } }, errors: { type: 'array', items: { type: 'string' } },
     advice: { type: 'array', items: { type: 'string' } }
   },
   required: ['score', 'summary', 'covered', 'missed', 'missed_terms', 'errors', 'advice'],
   additionalProperties: false
 };
-
 function examinerSystem(sid) {
   var subj = sid === 'chem' ? 'химия' : 'биология';
   return 'Ти си строг изпитващ от комисията по ' + subj + ' на конкурсния изпит за Медицински университет в България (МУ-София, Пловдив, Варна, Плевен). ' +
@@ -397,225 +485,506 @@ function gradePrompt(it, answer) {
 }
 function parseGrade(text) {
   var obj = null;
-  try { obj = JSON.parse(text); } catch (e) {
-    var m = String(text).match(/\{[\s\S]*\}/);
-    if (m) { try { obj = JSON.parse(m[0]); } catch (e2) { obj = null; } }
-  }
+  try { obj = JSON.parse(text); } catch (e) { var m = String(text).match(/\{[\s\S]*\}/); if (m) { try { obj = JSON.parse(m[0]); } catch (e2) { obj = null; } } }
   if (!obj || typeof obj !== 'object') return null;
   function arr(x) { return Array.isArray(x) ? x.map(String).filter(function (s) { return s.trim() && !/^няма\.?$/i.test(s.trim()); }) : []; }
-  var sc = Math.round(Number(obj.score));
-  if (!isFinite(sc)) return null;
-  return {
-    score: Math.max(0, Math.min(100, sc)), summary: String(obj.summary || ''),
-    covered: arr(obj.covered), missed: arr(obj.missed), missed_terms: arr(obj.missed_terms),
-    errors: arr(obj.errors), advice: arr(obj.advice)
-  };
+  var sc = Math.round(Number(obj.score)); if (!isFinite(sc)) return null;
+  return { score: Math.max(0, Math.min(100, sc)), summary: String(obj.summary || ''), covered: arr(obj.covered), missed: arr(obj.missed),
+    missed_terms: arr(obj.missed_terms), errors: arr(obj.errors), advice: arr(obj.advice) };
 }
 
-/* ================= ИЗГЛЕДИ ================= */
+/* ================= НАВИГАЦИЯ И РАМКА ================= */
+var NAV = [
+  ['home', '🏠', 'Начало'], ['bio', '🧬', 'Биология за МУ'], ['chem', '⚗️', 'Химия'], ['mistakes', '❤️', 'Грешките ми'], null,
+  ['rapid', '🔥', 'Бърз огън'], ['terms', '🎯', 'Назови термина'], ['open', '🤖', 'AI отворени въпроси'], ['boss', '👑', 'Шефът на блока'], ['mock', '🎲', 'Тест на случаен принцип'], null,
+  ['profile', '🏆', 'Профил / Прогрес'], ['settings', '⚙️', 'Настройки']
+];
+var TABS = [['home', '🏠', 'Начало'], ['bio', '🧬', 'Биология'], ['chem', '⚗️', 'Химия'], ['mistakes', '❤️', 'Грешки'], ['more', '☰', 'Още']];
 var app = document.getElementById('app');
-function stopTimer() { if (U.timer) { clearInterval(U.timer); U.timer = null; } }
-
-function paintHeader() {
-  document.body.setAttribute('data-subj', S.subj);
-  Array.prototype.forEach.call(document.querySelectorAll('#subj button'), function (b) { b.classList.toggle('on', b.dataset.s === S.subj); });
-  var due = dueMistakes(S.subj).length;
-  Array.prototype.forEach.call(document.querySelectorAll('#modes button'), function (b) {
-    var v = b.dataset.v;
-    b.classList.toggle('on', v === U.v || (v === 'topics' && U.v === 'topic'));
-    if (v === 'mistakes') b.innerHTML = 'Грешките ми' + (due ? '<span class="badge">' + due + '</span>' : '');
-  });
-  var r = rankOf(S.xp), st = streak();
-  document.getElementById('hstat').innerHTML =
-    '<span>' + r[2] + ' <b>' + esc(r[1]) + '</b></span>' +
-    '<span>⭐ <b>' + S.xp + '</b> XP</span>' +
-    '<span class="fire">🔥 <b>' + st + '</b> ' + pl(st, 'ден', 'дни') + '</span>' +
-    '<span>Днес <b>' + Math.min(S.days[today()] || 0, 999) + '/' + S.settings.goal + '</b></span>';
+function navOn(v) {
+  if (U.v === v) return true;
+  if ((U.v === 'topic' || U.v === 'lesson') && v === S.subj) return true;
+  return false;
 }
-
+function paintChrome() {
+  document.body.setAttribute('data-subj', S.subj);
+  document.body.classList.toggle('focus', U.v === 'lesson' || (U.v === 'rapid' && !!U.rapid && U.rapid.at < U.rapid.list.length) || (!!U.exam && !U.exam.done));
+  document.body.classList.toggle('calm', !!S.settings.calm);
+  var due = dueMistakes().length, st = streak(), L = levelOf(S.xp);
+  var logo = '<button class="logo" data-act="go" data-v="home">' + window.panda('happy', 'steth', {}) + '<b>Мед<span>Панда</span></b></button>';
+  document.getElementById('side').innerHTML = logo + NAV.map(function (n) {
+    if (!n) return '<div class="navsep"></div>';
+    return '<button class="navlink' + (navOn(n[0]) ? ' on' : '') + '" data-act="go" data-v="' + n[0] + '"><span class="i">' + n[1] + '</span>' + n[2] +
+      (n[0] === 'mistakes' && due ? '<span class="dot">' + due + '</span>' : '') + '</button>';
+  }).join('');
+  document.getElementById('topbar').innerHTML = logo + '<div class="chips">' +
+    '<span class="chip fire' + (dayDone(today()) ? '' : ' off') + '" title="Серия">🔥 ' + st + '</span>' +
+    '<span class="chip xp" title="XP">⭐ ' + S.xp + '</span>' +
+    '<span class="chip lvl" title="Ниво">' + rankOf(L)[2] + ' ' + L + '</span>' +
+    '<button class="chip heart" data-act="go" data-v="mistakes" title="Грешки за повторение">❤️ ' + due + '</button></div>';
+  document.getElementById('tabbar').innerHTML = TABS.map(function (n) {
+    var on = n[0] === 'more' ? ['rapid', 'terms', 'open', 'boss', 'mock', 'profile', 'settings'].indexOf(U.v) >= 0 : navOn(n[0]);
+    return '<button class="' + (on ? 'on' : '') + '" data-act="' + (n[0] === 'more' ? 'more' : 'go') + '" data-v="' + n[0] + '"><span class="i">' + n[1] + '</span>' + n[2] +
+      (n[0] === 'mistakes' && due ? '<span class="dot">' + due + '</span>' : '') + '</button>';
+  }).join('');
+}
+function stopTimer() { if (U.timer) { clearInterval(U.timer); U.timer = null; } }
 function render() {
-  paintHeader();
+  paintChrome();
   var v = U.v, h = '';
   if (v === 'home') h = homeHTML();
-  else if (v === 'topics') h = topicsHTML();
+  else if (v === 'bio' || v === 'chem') h = pathHTML(v);
   else if (v === 'topic') h = topicHTML();
-  else if (v === 'terms') h = U.run && U.run.ctx === 'terms' ? runHTML() : termsCfgHTML();
+  else if (v === 'lesson') h = lessonHTML();
+  else if (v === 'terms') h = termsCfgHTML();
   else if (v === 'rapid') h = U.rapid ? rapidHTML() : rapidCfgHTML();
   else if (v === 'mock') h = U.exam && U.exam.kind === 'mock' ? examHTML() : mockCfgHTML();
   else if (v === 'boss') h = U.exam && U.exam.kind === 'boss' ? examHTML() : bossPickHTML();
-  else if (v === 'open') h = U.oKey ? openHTML() : openListHTML();
-  else if (v === 'mistakes') h = U.run && U.run.ctx === 'review' ? runHTML() : mistakesHTML();
+  else if (v === 'open') h = U.oKey ? openPageHTML() : openListHTML();
+  else if (v === 'mistakes') h = mistakesHTML();
+  else if (v === 'profile') h = profileHTML();
   else if (v === 'settings') h = settingsHTML();
   app.innerHTML = h;
-  afterRender();
-}
-function afterRender() {
   var inp = document.getElementById('termInput');
-  if (inp && !(U.run && U.run.st.done)) inp.focus();
-  var nb = document.getElementById('nextBtn');
-  if (nb) nb.focus({ preventScroll: true });
+  if (inp) inp.focus();
+  else { var pb = document.getElementById('primary'); if (pb && !pb.disabled && !document.getElementById('overlay').innerHTML) pb.focus({ preventScroll: true }); }
+  setTimeout(flushCel, 30);
 }
 function go(v, extra) {
   stopTimer();
+  if (v === 'bio' || v === 'chem') S.subj = v;
   U.v = v;
-  if (v !== 'terms' && v !== 'mistakes') U.run = null;
+  if (v !== 'lesson') U.L = null;
   if (v !== 'rapid') U.rapid = null;
-  if (v !== 'mock' && v !== 'boss') U.exam = null;
+  U.exam = null;
   if (extra) for (var k in extra) U[k] = extra[k];
-  render();
-  window.scrollTo(0, 0);
+  save(); render(); window.scrollTo(0, 0);
+}
+function subjToggle(act) {
+  return '<div class="subjtoggle"><button class="bio' + (S.subj === 'bio' ? ' on' : '') + '" data-act="' + (act || 'subj') + '" data-s="bio">🧬 Биология</button>' +
+    '<button class="chem' + (S.subj === 'chem' ? ' on' : '') + '" data-act="' + (act || 'subj') + '" data-s="chem">⚗️ Химия</button></div>';
+}
+function modeHead(cls, mood, acc, eyebrow, title, sub) {
+  return '<div class="modehead ' + cls + '">' + P(mood, acc) + '<div><div class="eyebrow" style="color:rgba(255,255,255,.85)">' + eyebrow + '</div><h2>' + title + '</h2>' +
+    (sub ? '<div style="font-weight:700;opacity:.95;font-size:15px;margin-top:4px">' + sub + '</div>' : '') + '</div></div>';
 }
 
-/* ---------- НАЧАЛО ---------- */
+/* ================= НАЧАЛО ================= */
+function recommendation() {
+  var due = dueMistakes();
+  if (due.length >= 5) return { act: 'reviewStart', attr: 'data-all="0"', k: 'Преговор', title: '❤️ ' + due.length + ' грешки чакат', sub: 'Повтори ги, докато са пресни', xp: Math.min(due.length, REVIEW_N) * XP.review };
+  var t = nextTopic(S.subj);
+  return { act: 'lessonStart', attr: 'data-tid="' + esc(t.id) + '"', k: lessonDone(S.subj, t.id) ? 'Упражнявай' : 'Продължи обучението',
+    title: cur().icon + ' ' + cur().short + ' — ' + t.title, sub: blockLabel(t.block) + ' · ' + cur().blocks[t.block], xp: lessonEstimate(t) };
+}
 function homeHTML() {
-  var sub = cur(), r = rankOf(S.xp), nx = nextRank(S.xp), st = streak();
-  var prog = nx ? Math.round(100 * (S.xp - r[0]) / (nx[0] - r[0])) : 100;
-  var td = S.days[today()] || 0, due = dueMistakes(S.subj).length, all = mistakes(S.subj).length;
-  var h = '<div class="card"><div class="rank"><div class="medal">' + r[2] + '</div><div style="flex:1;min-width:0">' +
-    '<div class="eyebrow">Твоят ранг</div><h2>' + esc(r[1]) + '</h2>' +
-    '<div class="bar mt"><i style="width:' + prog + '%"></i></div>' +
-    '<div class="small muted" style="margin-top:6px">' + S.xp + ' XP' + (nx ? ' · още ' + (nx[0] - S.xp) + ' XP до „' + esc(nx[1]) + '“ ' + nx[2] : ' · достигна върха!') + '</div>' +
-    '</div></div></div>';
-
-  h += '<div class="grid4 mb">' +
-    stat('🔥 ' + st, 'серия (рекорд ' + Math.max(S.bestStreak, st) + ')') +
-    stat(Math.min(td, 999) + '/' + S.settings.goal, 'отговора днес') +
-    stat(due, 'за повторение днес') +
-    stat(S.mastered, 'овладени грешки') + '</div>';
-
-  /* календар */
-  h += '<div class="card"><div class="between"><h3 class="sec" style="margin:0">Последните 14 дни</h3>' +
-    '<span class="small muted">Ден се брои при ' + S.settings.goal + ' отговора</span></div>' +
-    '<div class="bar f mt"><i style="width:' + Math.min(100, pct(td, S.settings.goal)) + '%"></i></div><div class="cal">';
-  for (var i = 13; i >= 0; i--) {
-    var d = addDays(today(), -i), n = S.days[d] || 0;
-    h += '<span title="' + fmtDate(d) + ': ' + n + '" class="' + (dayDone(d) ? 'on' : n ? 'part' : '') + (i === 0 ? ' today' : '') + '"></span>';
-  }
-  h += '</div></div>';
-
+  var txp = todayXP(), g = goal(), gp = pct(Math.min(txp, g), g), st = streak(), L = levelOf(S.xp), rk = rankOf(L), nr = nextRankOf(L);
+  var mood = txp === 0 ? 'sleep' : txp >= g ? 'celebrate' : 'wave';
+  var hr = new Date().getHours(), hello = hr < 11 ? 'Добро утро!' : hr < 18 ? 'Добър ден!' : 'Добър вечер!';
+  var say = txp === 0 ? 'Д-р Панда още дреме… Събуди го с първия урок за деня! 😴' : txp >= g ? 'Целта за днес е изпълнена! Серията е спасена 🎉' : 'Още ' + (g - txp) + ' XP до днешната цел. Давай!';
+  var h = '<div class="hero"><div class="in">' + P(mood, 'steth') + '<div><h2>' + hello + '</h2><div style="font-weight:700;opacity:.95">' + rk[2] + ' ' + esc(rk[1]) + ' · Ниво ' + L + '</div>' +
+    '<div class="bubble">' + say + '</div></div></div></div>';
+  /* днешна цел */
+  h += '<div class="card"><div class="goal">' + ring(gp, '<div><b>' + gp + '%</b><small>' + Math.min(txp, 9999) + '/' + g + ' XP</small></div>', 96, 'var(--fire)') +
+    '<div style="flex:1;min-width:0"><div class="eyebrow">Днешната цел</div><h3>🔥 ' + st + ' ' + pl(st, 'ден', 'дни') + ' серия</h3>' +
+    '<div class="goaltxt mt">' + (txp >= g ? '✓ Целта е изпълнена — серията продължава!' : 'Днешна цел: ' + g + ' XP') + '</div>' +
+    '<div class="small muted" style="font-weight:700">Най-дълга серия: ' + Math.max(S.bestStreak, st) + ' ' + pl(Math.max(S.bestStreak, st), 'ден', 'дни') + '</div></div></div></div>';
+  /* препоръка */
+  var r = recommendation();
+  h += '<div class="reco"><div class="between"><div style="min-width:0"><div class="k">' + r.k + '</div><h3>' + esc(r.title) + '</h3><div class="small muted" style="font-weight:700">' + esc(r.sub) + '</div></div>' +
+    '<span class="tag xp">+' + r.xp + ' XP</span></div><button class="btn block big mt" data-act="' + r.act + '" ' + r.attr + '>▶ Продължи</button></div>';
   /* бързи действия */
-  var nt = nextTopic();
-  h += '<div class="grid3 mb">' +
-    big('topic', 'data-tid="' + esc(nt.id) + '"', '📖', 'Продължи', esc(nt.title)) +
-    big('go', 'data-v="terms"', '🔤', 'Назови термина', 'Определение → точен термин') +
-    big('go', 'data-v="rapid"', '⚡', 'Бърз огън', 'Комбо множители до ×3') +
-    big('go', 'data-v="mock"', '📝', 'Тест на случаен принцип', 'Пробен изпит с оценка') +
-    big('go', 'data-v="boss"', '👹', 'Шефът на блока', 'Победи всеки блок') +
-    big('go', 'data-v="open"', '✍️', 'Отворен въпрос', getApiKey() ? 'Оценява Claude' : 'Нужен е API ключ') +
-    '</div>';
-  if (all) h += '<div class="card tight between"><div><b>Грешките ми:</b> ' + all + ' ' + pl(all, 'елемент', 'елемента') + (due ? ', от тях <b>' + due + '</b> за днес' : ', нищо за днес') + '</div>' +
-    '<button class="btn sm" data-act="go" data-v="mistakes">Към грешките</button></div>';
-
-  /* овладяване на блоковете */
-  h += '<div class="card"><h3 class="sec">Шефът на блока — овладяване</h3>';
-  sub.order.forEach(function (b) {
-    var m = blockMastery(S.subj, b), bs = S.boss[S.subj + '|' + b];
-    h += '<div class="meterrow"><div>' + esc(sub.blocks[b]) + ' ' + (bs && bs.beaten ? '<span class="tag ok">🏆 победен</span>' : m.nq ? '<span class="tag">⚔️ непобеден</span>' : '<span class="tag">скоро</span>') + '</div>' +
-      '<div class="bar v"><i style="width:' + m.pct + '%"></i></div><div class="pct">' + m.pct + '%</div></div>';
-  });
-  h += '</div>';
-
-  /* капан на деня */
-  var tw = [];
-  sub.topics.forEach(function (t) { t.twins.forEach(function (x) { tw.push(x); }); });
-  if (tw.length) {
-    var dn = Math.floor(new Date().getTime() / 86400000), x = tw[dn % tw.length];
-    h += '<div class="card" style="background:var(--warn-soft);border-color:transparent"><div class="eyebrow" style="color:var(--warn)">Капан на деня</div>' +
-      '<div style="font-family:var(--serif);font-size:21px;margin:2px 0 6px">' + x.a + ' <em style="font-style:normal;color:var(--warn)">или</em> ' + x.b + '?</div>' +
-      '<div style="color:var(--ink2)">' + x.n + '</div></div>';
-  }
+  h += '<div class="qa">' +
+    qa('go', 'data-v="rapid"', 'ic-fire', '🔥', 'Бърз огън', 'Комбо до ×3') +
+    qa('go', 'data-v="terms"', 'ic-term', '🎯', 'Назови термина', 'Определение → термин') +
+    qa('go', 'data-v="open"', 'ic-ai', '🤖', 'Отворен въпрос', getApiKey() ? 'Оценява Claude' : 'Нужен е API ключ') +
+    qa('go', 'data-v="boss"', 'ic-boss', '👑', 'Шефът на блока', 'Победи блока') +
+    qa('go', 'data-v="mock"', 'ic-dice', '🎲', 'Случаен тест', 'Пробен изпит') +
+    qa('go', 'data-v="mistakes"', 'ic-go', '❤️', 'Грешките ми', dueMistakes().length + ' за днес') + '</div>';
+  /* ранг */
+  var lp = pct(S.xp - xpForLevel(L), xpForLevel(L + 1) - xpForLevel(L));
+  h += '<div class="card"><div class="row" style="flex-wrap:nowrap">' + P('happy', 'cap', 76) + '<div style="flex:1;min-width:0"><div class="eyebrow">Твоят ранг</div><h3 style="font-size:21px">' + rk[2] + ' ' + esc(rk[1]) + '</h3>' +
+    '<div class="between small" style="font-weight:800;margin:6px 0 4px"><span>Ниво ' + L + '</span><span class="muted">' + (S.xp - xpForLevel(L)) + '/' + (xpForLevel(L + 1) - xpForLevel(L)) + ' XP</span></div>' + bar(lp, 'xp') +
+    (nr ? '<div class="small muted mt" style="font-weight:700">Следващ ранг: ' + nr[2] + ' ' + esc(nr[1]) + ' (ниво ' + nr[0] + ', още ' + (xpForLevel(nr[0]) - S.xp) + ' XP)</div>' : '<div class="small mt">Достигна най-високия ранг! 🏅</div>') + '</div></div></div>';
+  /* предмети */
+  h += '<div class="subjcards">' + ['bio', 'chem'].map(function (sid) {
+    var m = subjMastery(sid), done = SUBJ[sid].topics.filter(function (t) { return lessonDone(sid, t.id); }).length;
+    return '<button class="subjcard ' + sid + '" data-act="go" data-v="' + sid + '">' + ring(m, '<b>' + m + '%</b>', 62) + '<div><b class="t">' + SUBJ[sid].icon + ' ' + SUBJ[sid].short + '</b><small>' + done + '/' + SUBJ[sid].topics.length + ' урока</small></div></button>';
+  }).join('') + '</div>';
+  /* седмица */
+  h += '<div class="card"><div class="between"><h3 class="sec" style="margin:0">Последните 7 дни</h3><span class="tag xp">⭐ ' + S.xp + ' XP общо</span></div>' + weekHTML(7) + '</div>';
   return h;
-  function stat(n, l) { return '<div class="stat"><div class="n">' + n + '</div><div class="l">' + l + '</div></div>'; }
-  function big(act, attr, ico, title, sub2) { return '<button class="bigbtn" data-act="' + act + '" ' + attr + '><span class="ico">' + ico + '</span><b>' + title + '</b><span>' + sub2 + '</span></button>'; }
+  function qa(act, attr, ic, i, t, s) { return '<button data-act="' + act + '" ' + attr + '><span class="i ' + ic + '">' + i + '</span><span>' + t + '<small>' + s + '</small></span></button>'; }
 }
-function nextTopic() {
-  var ts = cur().topics;
-  for (var i = 0; i < ts.length; i++) { var t = ts[i], a = 0; t.q.forEach(function (_, j) { if (S.mcq[K(S.subj, t.id, 'q', j)] !== undefined) a++; }); if (a < t.q.length) return t; }
-  return ts[0];
+function weekHTML(n) {
+  var days = [], mx = goal();
+  for (var i = n - 1; i >= 0; i--) { var d = addDays(today(), -i); days.push(d); mx = Math.max(mx, S.xpDays[d] || 0); }
+  return '<div class="week">' + days.map(function (d) {
+    var x = S.xpDays[d] || 0, hgt = Math.max(4, Math.round(80 * x / mx));
+    return '<div title="' + fmtDate(d) + ': ' + x + ' XP"><span style="color:var(--ink2)">' + (x || '') + '</span><i class="' + (d === today() ? 'today' : '') + (x ? '' : ' zero') + '" style="height:' + hgt + 'px"></i><span>' + (n > 7 ? +d.slice(8) : wday(d)) + '</span></div>';
+  }).join('') + '</div>';
 }
 
-/* ---------- ТЕМИ ---------- */
-function topicsHTML() {
-  var sub = cur(), h = '<div class="card"><h2 class="title">' + esc(sub.name) + ' — теми</h2><div class="muted">Всяка тема: кратко обяснение, термини, капани, въпроси с обяснения и отворен въпрос.</div></div>';
+/* ================= ПЪТ НА ОБУЧЕНИЕ ================= */
+var ZIG = [0, 46, 70, 46, 0, -46, -70, -46];
+function pathHTML(sid) {
+  var sub = SUBJ[sid], m = subjMastery(sid), done = sub.topics.filter(function (t) { return lessonDone(sid, t.id); }).length;
+  var cur0 = nextTopic(sid);
+  var h = '<div class="pathhead ' + sid + '">' + P('wave', sub.acc) + '<div style="flex:1"><div class="eyebrow" style="color:rgba(255,255,255,.85)">Път на обучение</div><h2>' + sub.icon + ' ' + esc(sub.name) + '</h2>' +
+    '<div style="font-weight:800;margin-top:4px">' + done + '/' + sub.topics.length + ' урока · ' + m + '% овладяно</div></div>' +
+    '<div class="ring" style="--p:' + m + ';--s:64px;background:radial-gradient(closest-side,rgba(0,0,0,.15) 72%,transparent 73% 100%),conic-gradient(#fff calc(var(--p)*1%),rgba(255,255,255,.25) 0)"><b style="color:#fff;font-size:15px">' + m + '%</b></div></div>';
+  var idx = 0, z = 0;
   sub.order.forEach(function (b) {
-    var list = sub.topics.filter(function (t) { return t.block === b; });
-    h += '<div class="blockhead">' + esc(sub.blocks[b]) + '</div>';
-    if (!list.length) { h += '<div class="card tight muted small">Още няма теми в този блок. Добави ги в <code>js/data-custom.js</code>.</div>'; return; }
-    h += '<div class="tlist">';
-    list.forEach(function (t) {
-      var m = topicMastery(S.subj, t);
-      h += '<button class="trow" data-act="topic" data-tid="' + esc(t.id) + '"><span class="no">' + esc(t.no || '') + '</span><span>' + esc(t.title) +
-        '<span class="small muted" style="display:block">' + t.q.length + ' въпроса · ' + t.terms.length + ' термина' + (t.open.length ? ' · ' + t.open.length + ' отворен' : '') + '</span></span>' +
-        '<span><span class="bar"><i style="width:' + m.pct + '%"></i></span><span class="small muted">' + m.pct + '% овладяно</span></span></button>';
+    var ts = sub.topics.filter(function (t) { return t.block === b; }), bm = blockMastery(sid, b), mastered = S.blocksMastered[sid + '|' + b];
+    h += '<div class="unit ' + sid + '"><div><div class="k">' + blockLabel(b) + '</div><b>' + esc(sub.blocks[b]) + '</b></div><div class="pc">' + (mastered ? '🏆 ' : '') + bm.pct + '%</div></div>';
+    if (!ts.length) { h += '<div class="card tight center muted small"><div style="width:70px;margin:0 auto">' + P('sleep', 'none') + '</div>Още няма теми в този блок. Добави ги в <code>js/data-custom.js</code>.</div>'; return; }
+    h += '<div class="path">';
+    var allDone = true;
+    ts.forEach(function (t, j) {
+      var gi = sub.topics.indexOf(t), st = topicStatus(sid, t, gi), tm = topicMastery(sid, t), off = ZIG[z++ % ZIG.length];
+      if (!lessonDone(sid, t.id)) allDone = false;
+      if (j > 0) h += '<div class="trail' + (st !== 'locked' ? ' done' : '') + '" style="transform:translateX(' + Math.round(off * 0.6) + 'px)"><i></i><i></i></div>';
+      var isCur = t === cur0 && st !== 'locked';
+      var stIcon = st === 'locked' ? '🔒' : st === 'done' ? '✓' : st === 'prog' ? '🟡' : '⚪';
+      var stText = st === 'locked' ? '🔒 Заключена' : st === 'done' ? '🟢 Овладяна' : st === 'prog' ? '🟡 В процес' : '⚪ Не е започната';
+      h += '<div class="nodewrap' + (isCur ? ' hasbub' : '') + '" style="transform:translateX(' + off + 'px)">' + (isCur ? '<div class="startbub">' + (lessonDone(sid, t.id) ? 'ПРОДЪЛЖИ' : 'ЗАПОЧНИ') + '</div>' : '') +
+        '<button class="node ' + st + (isCur ? ' cur' : '') + '" data-act="node" data-tid="' + esc(t.id) + '" aria-label="' + esc(t.title) + '">' + (st === 'locked' ? '🔒' : topicIcon(sid, t)) +
+        (st !== 'locked' ? '<span class="st">' + stIcon + '</span>' : '') + '</button>' +
+        '<div class="nlabel"><b>' + esc(t.title) + '</b>' + (st !== 'locked' ? bar(tm.pct, 'thin ' + (st === 'done' ? 'ok' : st === 'prog' ? 'xp' : '')) : '') +
+        '<small>' + stText + (st !== 'locked' ? ' · ' + tm.pct + '% · ' + tm.qok + '/' + tm.qn + ' въпроса' : '') + '</small></div>' +
+        (j === 2 ? '<div class="pathpanda" style="' + (off >= 0 ? 'left:-80px' : 'right:-80px') + '">' + P(j % 2 ? 'think' : 'happy', sub.acc) + '</div>' : '') +
+        '</div>';
+      idx++;
+    });
+    var bs = S.boss[sid + '|' + b] || {}, unlocked = S.settings.freeNav || allDone || bm.pct >= 50;
+    var off2 = ZIG[z++ % ZIG.length];
+    h += '<div class="trail' + (unlocked ? ' done' : '') + '" style="transform:translateX(' + Math.round(off2 * 0.6) + 'px)"><i></i><i></i></div>' +
+      '<div class="nodewrap" style="transform:translateX(' + off2 + 'px)"><button class="node boss' + (unlocked ? '' : ' locked') + (bs.beaten ? ' won' : '') + '" data-act="bossNode" data-b="' + b + '" aria-label="Шефът на блока">' + (bs.beaten ? '🏆' : unlocked ? '👑' : '🔒') + '</button>' +
+      '<div class="nlabel"><b>Шефът на блока</b><small>' + (bs.beaten ? '🏆 Победен · ' + bs.best.toFixed(2) : unlocked ? '👑 Готов за битка' : '🔒 Завърши уроците в блока') + '</small></div></div>';
+    h += '</div>';
+  });
+  return h;
+}
+function nodeSheet(tid) {
+  var sid = S.subj, t = topicById(sid, tid), gi = cur().topics.indexOf(t), st = topicStatus(sid, t, gi), tm = topicMastery(sid, t), done = lessonDone(sid, t.id);
+  var h = '<div class="row" style="flex-wrap:nowrap;align-items:flex-start">' + P(st === 'locked' ? 'think' : st === 'done' ? 'celebrate' : 'happy', cur().acc, 84) +
+    '<div style="flex:1;min-width:0"><div class="eyebrow">' + blockLabel(t.block) + ' · ' + esc(cur().blocks[t.block]) + '</div><h3 style="font-size:21px">' + topicIcon(sid, t) + ' ' + esc(t.title) + '</h3>' +
+    '<div class="row mt" style="gap:6px">' + (st === 'done' ? '<span class="tag ok">🟢 Овладяна</span>' : st === 'prog' ? '<span class="tag xp">🟡 В процес</span>' : st === 'locked' ? '<span class="tag">🔒 Заключена</span>' : '<span class="tag">⚪ Не е започната</span>') +
+    '<span class="tag xp">+~' + lessonEstimate(t) + ' XP</span>' + (t.open.length ? '<span class="tag ach">🤖 до +50 XP</span>' : '') + '</div></div></div>';
+  h += '<div class="mt">' + bar(tm.pct, st === 'done' ? 'ok' : 'xp') + '<div class="between small mt" style="font-weight:800"><span>' + tm.pct + '% овладяно</span><span class="muted">' + tm.qok + '/' + tm.qn + ' въпроса · ' + tm.tok + '/' + tm.tn + ' термина</span></div></div>';
+  if (st === 'locked') {
+    var prev = cur().topics[gi - 1];
+    h += '<div class="note mt">Завърши урока „' + esc(prev.title) + '“, за да отключиш тази тема. Ако вече я знаеш — можеш да опиташ направо.</div>' +
+      '<button class="btn block big mt" data-act="lessonStart" data-tid="' + esc(t.id) + '">Опитай все пак</button>';
+  } else {
+    h += '<button class="btn block big mt" id="primary" data-act="lessonStart" data-tid="' + esc(t.id) + '">' + (done ? (st === 'done' ? '↻ Повтори урока' : '▶ Продължи урока') : '▶ Започни урока') + '</button>';
+  }
+  h += '<div class="grid2 mt"><button class="btn ghost" data-act="topic" data-tid="' + esc(t.id) + '">📖 Учебник</button>' +
+    '<button class="btn ghost" data-act="termsTopic" data-tid="' + esc(t.id) + '"' + (t.terms.length ? '' : ' disabled') + '>🎯 Термини</button></div>' +
+    (t.open.length ? '<button class="btn ghost block mt" data-act="openSel" data-k="' + esc(K(sid, t.id, 'o', 0)) + '">🤖 Отворен въпрос</button>' : '') +
+    '<button class="linkbtn mt" style="display:block;margin:14px auto 0" data-act="closeOv">Затвори</button>';
+  sheet(h);
+}
+function bossSheet(b) {
+  var sid = S.subj, bm = blockMastery(sid, b), bs = S.boss[sid + '|' + b] || { best: 0, beaten: false, n: 0 };
+  sheet('<div class="center"><div style="width:120px;margin:0 auto">' + P(bs.beaten ? 'hero' : 'surprised', 'clipboard') + '</div>' +
+    '<div class="eyebrow mt">' + blockLabel(b) + '</div><h3 style="font-size:22px">👑 Шефът на „' + esc(cur().blocks[b]) + '“</h3>' +
+    '<p class="muted" style="font-weight:700">' + Math.min(BOSS_N, bm.nq) + ' въпроса · ' + BOSS_MIN + ' минути · победа при оценка 5.50+ · +' + XP.bossFirst + ' XP</p>' +
+    '<div class="row" style="justify-content:center"><span class="tag ach">Овладяване ' + bm.pct + '%</span><span class="tag">Опити: ' + bs.n + '</span>' + (bs.n ? '<span class="tag xp">Най-добра: ' + bs.best.toFixed(2) + '</span>' : '') + '</div>' +
+    '<button class="btn block big mt fire" id="primary" data-act="bossStart" data-b="' + b + '"' + (bm.nq ? '' : ' disabled') + '>⚔️ Предизвикай шефа</button>' +
+    '<button class="linkbtn mt" style="display:block;margin:14px auto 0" data-act="closeOv">Затвори</button></div>');
+}
+
+/* ---------- учебник (цялата тема) ---------- */
+function topicHTML() {
+  var sid = S.subj, t = topicById(sid, U.tid) || cur().topics[0];
+  if (!t) return '';
+  U.tid = t.id;
+  var h = '<div class="row mb"><button class="btn ghost sm" data-act="go" data-v="' + sid + '">← Към пътя</button><button class="btn sm" data-act="lessonStart" data-tid="' + esc(t.id) + '">▶ Урок</button></div>';
+  h += '<div class="learncard"><div class="eyebrow">' + blockLabel(t.block) + ' · ' + esc(cur().blocks[t.block]) + (t.no ? ' · тема ' + esc(t.no) : '') + '</div>' +
+    '<h2 class="title">' + topicIcon(sid, t) + ' ' + esc(t.title) + '</h2>' + (t.brief ? '<div class="brief">' + t.brief + '</div>' : '') + (t.anchor ? '<div class="anchor"><div>' + t.anchor + '</div></div>' : '') + '</div>';
+  if (t.diagram) h += '<div class="dgwrap ' + t.diagram.kind + ' mb">' + t.diagram.html + (t.diagram.cap ? '<div class="dgcap">' + t.diagram.cap + '</div>' : '') + '</div>';
+  if (t.facts.length) h += '<div class="learncard"><h3 class="sec">Ключови факти</h3><ul class="facts">' + t.facts.map(function (f) { return '<li>' + f + '</li>'; }).join('') + '</ul></div>';
+  if (t.skeleton) h += '<div class="learncard"><h3 class="sec">Скелет на отговора</h3><ol style="margin:0;padding-left:22px">' + t.skeleton.map(function (f) { return '<li style="padding:4px 0">' + f + '</li>'; }).join('') + '</ol></div>';
+  if (t.terms.length) h += '<div class="learncard"><h3 class="sec">Термини</h3><dl class="terms" style="margin:0">' + t.terms.map(function (x) { return '<div class="term"><dt>' + esc(x[0]) + '</dt><dd>' + x[1] + '</dd></div>'; }).join('') + '</dl></div>';
+  if (t.twins.length || t.notes.length) h += '<div class="learncard"><h3 class="sec">⚠️ Капани — не ги бъркай</h3>' + trapsHTML(t, 99) + '</div>';
+  h += '<button class="btn block big" data-act="lessonStart" data-tid="' + esc(t.id) + '">▶ Започни урока</button>';
+  return h;
+}
+function trapsHTML(t, max) {
+  return t.twins.slice(0, max).map(function (x) { return '<div class="twin"><div class="ab">' + x.a + '<em>или</em>' + x.b + '</div><div class="nt">' + x.n + '</div></div>'; }).join('') +
+    (t.notes.length ? '<ul class="facts' + (t.twins.length ? ' mt' : '') + '">' + t.notes.slice(0, max).map(function (n) { return '<li>' + n + '</li>'; }).join('') + '</ul>' : '');
+}
+
+/* ================= УРОК (обща машина) =================
+   mode: lesson · practice · terms · review                       */
+function newLesson(o) {
+  return { mode: o.mode, sid: o.sid, tid: o.tid || null, title: o.title, steps: o.steps, at: 0, xp: 0, firstOk: 0, firstN: 0, wrong: 0, fixed: 0,
+    combo: 0, maxCombo: 0, st: freshSt(), startM: o.tid ? topicMastery(o.sid, topicById(o.sid, o.tid)).pct : null, done: false, res: null };
+}
+function freshSt() { return { sel: null, checked: false, ok: false, typo: false, given: '', hint: 0, xp: 0, msg: '' }; }
+function buildLesson(sid, tid, mode) {
+  var t = topicById(sid, tid), steps = [], repeat = lessonDone(sid, tid);
+  if (mode === 'lesson') {
+    steps.push({ kind: 'learn', title: t.title, html: (t.brief ? '<div class="brief">' + t.brief + '</div>' : '') + (t.anchor ? '<div class="anchor"><div>' + t.anchor + '</div></div>' : '') });
+    if (t.diagram) steps.push({ kind: 'learn', title: 'Виж го на схема', html: '<div class="dgwrap ' + t.diagram.kind + '">' + t.diagram.html + (t.diagram.cap ? '<div class="dgcap">' + t.diagram.cap + '</div>' : '') + '</div>' });
+    if (t.facts.length) steps.push({ kind: 'learn', title: 'Ключови факти', html: '<ul class="facts">' + t.facts.map(function (f) { return '<li>' + f + '</li>'; }).join('') + '</ul>' });
+    if (t.twins.length || t.notes.length) steps.push({ kind: 'learn', title: '⚠️ Капани — не ги бъркай', html: trapsHTML(t, 4) });
+  }
+  var qi = t.q.map(function (_, i) { return i; });
+  if (repeat || mode === 'practice') shuffle(qi);
+  var np = mode === 'practice' ? Math.min(5, qi.length) : Math.min(4, Math.ceil(qi.length / 2));
+  qi.slice(0, np).forEach(function (i) { steps.push({ kind: 'mcq', key: K(sid, tid, 'q', i), phase: 'practice' }); });
+  var ti = t.terms.map(function (_, i) { return i; }).filter(function (i) { return t.terms[i][0].length < 60; });
+  ti.sort(function (a, b) { var ra = S.terms[K(sid, tid, 't', a)], rb = S.terms[K(sid, tid, 't', b)]; return (ra && ra.ok ? 1 : 0) - (rb && rb.ok ? 1 : 0) || Math.random() - 0.5; });
+  ti.slice(0, 3).forEach(function (i) { steps.push({ kind: 'term', key: K(sid, tid, 't', i), phase: 'recall' }); });
+  if (mode === 'lesson') {
+    qi.slice(np, np + 3).forEach(function (i) { steps.push({ kind: 'mcq', key: K(sid, tid, 'q', i), phase: 'challenge' }); });
+    if (t.open.length) steps.push({ kind: 'open', key: K(sid, tid, 'o', Math.floor(Math.random() * t.open.length)), phase: 'ai' });
+  }
+  return steps;
+}
+function startLesson(sid, tid, mode) {
+  closeOverlay();
+  var t = topicById(sid, tid);
+  S.subj = sid;
+  U.L = newLesson({ mode: mode, sid: sid, tid: tid, title: t.title, steps: buildLesson(sid, tid, mode) });
+  go('lesson', { L: U.L });
+}
+function startRun(mode, keys, title) {
+  closeOverlay();
+  var steps = keys.map(function (k) { var it = item(k); return { kind: it.type === 'q' ? 'mcq' : it.type === 't' ? 'term' : 'open', key: k, phase: mode === 'review' ? 'review' : it.type === 't' ? 'recall' : 'practice' }; });
+  U.L = newLesson({ mode: mode, sid: S.subj, title: title, steps: steps });
+  go('lesson', { L: U.L });
+}
+var PHASE = {
+  learn: ['ph-learn', '📖 Научи'], practice: ['ph-practice', '✏️ Упражнение'], recall: ['ph-recall', '🎯 Назови термина'],
+  challenge: ['ph-challenge', '🔥 Предизвикателство'], ai: ['ph-ai', '🤖 AI отворен въпрос'], retry: ['ph-retry', '💪 Опитай пак'], review: ['ph-retry', '❤️ Преговор']
+};
+function lessonHTML() {
+  var L = U.L;
+  if (!L) return '';
+  if (L.done) return lessonResultHTML();
+  var step = L.steps[L.at], st = L.st, sid = L.sid;
+  var p = pct(L.at, L.steps.length);
+  var h = '<div class="lhead"><button class="xbtn" data-act="lessonQuit" aria-label="Изход">✕</button>' + bar(p) +
+    '<span class="combo">' + (L.combo >= 2 ? '🔥 ' + L.combo : '') + '</span><span class="hearts">⭐ ' + L.xp + '</span></div>';
+  var ph = PHASE[step.kind === 'learn' ? 'learn' : step.phase] || PHASE.practice;
+  h += '<span class="phase ' + ph[0] + '">' + ph[1] + '</span>';
+  var it = step.key ? item(step.key) : null, bottom = '';
+  if (step.kind === 'learn') {
+    if (L.at === 0) h += '<div class="coach">' + P('wave', SUBJ[sid].acc) + '<div class="say">' + pick(['Нека започнем! Прочети внимателно — после ще те питам. 😉', 'Ново знание на хоризонта! Готов ли си?', 'Кратко обяснение, после практика. Да тръгваме!']) + '</div></div>';
+    h += '<div class="learncard"><h3 class="lt">' + esc(step.title) + '</h3>' + step.html + '</div>';
+    var hasLearnAfter = L.steps.slice(L.at + 1).some(function (s) { return s.kind === 'learn'; });
+    bottom = '<div class="fbar"><div class="in"><button class="btn block big" id="primary" data-act="lNext">Разбрах — продължи</button>' +
+      (hasLearnAfter && L.mode === 'lesson' && lessonDone(sid, L.tid) ? '<button class="linkbtn" style="display:block;margin:10px auto 0" data-act="skipLearn">Пропусни теорията</button>' : '') + '</div></div>';
+  } else if (step.kind === 'mcq') {
+    if (step.phase === 'challenge' && !st.checked) h += '<div class="coach">' + P('think', SUBJ[sid].acc, 64) + '<div class="say">По-труден въпрос — помисли добре! (+' + XP.challenge + ' XP)</div></div>';
+    if (step.phase === 'retry' && !st.checked) h += '<div class="coach">' + P('happy', SUBJ[sid].acc, 64) + '<div class="say">Да опитаме пак — този път ще стане!</div></div>';
+    h += '<div class="small muted" style="font-weight:800">' + esc(it.t.title) + '</div><div class="lq">' + it.d.s + '</div><div class="opts">';
+    it.d.o.forEach(function (o, j) {
+      var cls = '';
+      if (st.checked) { if (j === it.d.a) cls = ' right'; else if (j === st.sel) cls = ' wrong'; }
+      else if (j === st.sel) cls = ' sel';
+      h += '<button class="opt' + cls + '" data-act="lSel" data-j="' + j + '"' + (st.checked ? ' disabled' : '') + '><span class="k">' + (j + 1) + '</span><span>' + o + '</span></button>';
     });
     h += '</div>';
-  });
-  return h;
+    bottom = st.checked ? fbarHTML(st.ok, st.msg, st.xp, (it.d.why ? '<div>' + it.d.why + '</div>' : '') + (it.d.trap ? '<div class="trap"><b>Капан:</b> ' + it.d.trap + '</div>' : ''))
+      : '<div class="fbar"><div class="in"><button class="btn block big ok" id="primary" data-act="lCheck"' + (st.sel == null ? ' disabled' : '') + '>Провери</button></div></div>';
+  } else if (step.kind === 'term') {
+    var term = it.d[0], def = it.d[1];
+    h += '<div class="small muted" style="font-weight:800">Кой е терминът? · ' + esc(it.t.title) + '</div><div class="defcard">' + maskDef(def, term) + '</div>';
+    if (!st.checked) {
+      if (st.hint) { var w = termAnswers(term)[0] || '', show = st.hint === 1 ? 1 : Math.min(3, w.length); h += '<div class="hintline">' + esc(w.slice(0, show).toUpperCase()) + w.slice(show).replace(/[^\s-]/g, '_') + '</div>'; }
+      h += '<form data-form="termCheck" autocomplete="off"><input id="termInput" class="tin" placeholder="Напиши термина…" value="' + esc(st.given) + '" spellcheck="false" autocapitalize="off"></form>' +
+        '<div class="row mt"><button class="btn ghost sm" data-act="lHint"' + (st.hint >= 2 ? ' disabled' : '') + '>💡 Подсказка (−' + XP.hint + ' XP)</button><button class="btn ghost sm" data-act="lDunno">Не знам</button></div>';
+      bottom = '<div class="fbar"><div class="in"><button class="btn block big ok" id="primary" data-act="lCheck">Провери</button></div></div>';
+    } else {
+      bottom = fbarHTML(st.ok, st.msg, st.xp, (st.given ? '<div>Ти написа: <b>' + esc(st.given) + '</b></div>' : '') + '<div>Терминът е: <b>' + esc(term) + '</b></div>' + (st.typo ? '<div class="trap"><b>Внимавай с правописа</b> — на изпита се търси точният термин.</div>' : ''));
+    }
+  } else if (step.kind === 'open') {
+    h += openPanelHTML(step.key, 'lesson');
+    var r = S.opens[step.key] || {};
+    bottom = '<div class="fbar"><div class="in">' + (st.checked ? '<button class="btn block big" id="primary" data-act="lNext">Продължи</button>'
+      : '<button class="btn block big ghost" data-act="lNext">' + (r.last ? 'Продължи' : 'Пропусни') + '</button>') + '</div></div>';
+  }
+  return h + '<div class="spacer"></div>' + bottom;
 }
-function topicHTML() {
-  var sub = cur(), t = topicById(S.subj, U.tid) || sub.topics[0];
-  if (!t) return '<div class="card">Няма теми.</div>';
-  U.tid = t.id;
-  var h = '<div class="card"><div class="eyebrow">' + esc(sub.blocks[t.block] || '') + (t.no ? ' · тема ' + esc(t.no) : '') + '</div>' +
-    '<h2 class="title">' + esc(t.title) + '</h2>' + (t.brief ? '<div class="brief">' + t.brief + '</div>' : '') +
-    (t.anchor ? '<div class="anchor">' + t.anchor + '</div>' : '') + '</div>';
-  if (t.diagram) h += '<div class="dgwrap ' + t.diagram.kind + ' mb">' + t.diagram.html + (t.diagram.cap ? '<div class="dgcap">' + t.diagram.cap + '</div>' : '') + '</div>';
-  if (t.facts.length) h += '<div class="card"><h3 class="sec">Ключови факти</h3><ul class="facts">' + t.facts.map(function (f) { return '<li>' + f + '</li>'; }).join('') + '</ul></div>';
-  if (t.skeleton) h += '<div class="card"><h3 class="sec">Скелет на отговора</h3><ol style="margin:0;padding-left:22px">' + t.skeleton.map(function (f) { return '<li style="padding:4px 0">' + f + '</li>'; }).join('') + '</ol></div>';
-  if (t.terms.length) {
-    h += '<div class="card"><div class="between mb"><h3 class="sec" style="margin:0">Термини</h3><button class="btn sm" data-act="termsTopic" data-tid="' + esc(t.id) + '">🔤 Назови термина по тази тема</button></div><dl class="terms" style="margin:0">' +
-      t.terms.map(function (x) { return '<div class="term"><dt>' + esc(x[0]) + '</dt><dd>' + x[1] + '</dd></div>'; }).join('') + '</dl></div>';
+function fbarHTML(ok, msg, xp, body) {
+  return '<div class="fbar slide ' + (ok ? 'good' : 'bad') + '"><div class="in"><div class="head">' + P(ok ? 'celebrate' : 'sad', ok ? 'none' : 'steth', 62) +
+    '<div><b>' + (ok ? '✓ ' : '') + esc(msg) + '</b>' + (ok && xp ? '<span class="tag xp">+' + xp + ' XP</span>' : !ok ? '<span class="small" style="font-weight:800">Ще се върнем към това след малко 💪</span>' : '') + '</div></div>' +
+    (body ? '<div class="exp">' + body + '</div>' : '') +
+    '<button class="btn block big ' + (ok ? 'ok' : 'bad') + '" id="primary" data-act="lNext">Продължи</button></div></div>';
+}
+function lessonAnswer(ok, xp, key) {
+  var L = U.L, step = L.steps[L.at];
+  if (step.phase !== 'retry') { L.firstN++; if (ok) L.firstOk++; }
+  if (ok) { L.combo++; L.maxCombo = Math.max(L.maxCombo, L.combo); if (step.phase === 'retry') L.fixed++; }
+  else {
+    L.combo = 0; L.wrong++;
+    if (step.phase !== 'retry') {
+      var openAt = -1; L.steps.forEach(function (s, i) { if (s.kind === 'open' && i > L.at) openAt = i; });
+      var retry = { kind: step.kind, key: step.key, phase: 'retry' };
+      if (openAt >= 0) L.steps.splice(openAt, 0, retry); else L.steps.push(retry);
+    }
   }
-  if (t.twins.length || t.notes.length) {
-    h += '<div class="card"><h3 class="sec">Капани — не ги бъркай</h3>' +
-      t.twins.map(function (x) { return '<div class="twin"><div class="ab">' + x.a + '<em>или</em>' + x.b + '</div><div class="nt">' + x.n + '</div></div>'; }).join('') +
-      (t.notes.length ? '<ul class="facts' + (t.twins.length ? ' mt' : '') + '">' + t.notes.map(function (n) { return '<li>' + n + '</li>'; }).join('') + '</ul>' : '') + '</div>';
+  L.st.checked = true; L.st.ok = ok; L.st.xp = ok ? xp : 0;
+  L.st.msg = ok ? (L.combo >= 3 && L.combo % 3 === 0 ? '🔥 ' + L.combo + ' поредни верни!' : pick(GOOD)) : pick(BAD);
+  L.xp += L.st.xp;
+  logAnswer(ok);
+  if (step.phase !== 'retry') record(key, ok);
+  addXP(L.st.xp, 1);
+}
+function finishLesson() {
+  var L = U.L; if (L.done) return;
+  L.done = true;
+  U.newAch = [];
+  var acc = L.firstN ? pct(L.firstOk, L.firstN) : 100, bonus = 0;
+  if (L.mode === 'lesson' || L.mode === 'practice') {
+    bonus += XP.lessonBonus;
+    if (L.firstN && L.firstOk === L.firstN) { bonus += XP.perfect; S.cnt.perfect++; }
   }
-  if (t.q.length) {
-    h += '<div class="card"><div class="between mb"><h3 class="sec" style="margin:0">Провери се</h3><button class="linkbtn" data-act="topicReset" data-tid="' + esc(t.id) + '">започни отначало</button></div>';
-    t.q.forEach(function (q, i) { h += mcqHTML(K(S.subj, t.id, 'q', i), q, i + 1, U.picks[K(S.subj, t.id, 'q', i)], 'tpick'); });
-    h += '</div>';
+  if (L.mode === 'lesson') {
+    var k = L.sid + '|' + L.tid, l = S.lessons[k] || { n: 0, best: 0 };
+    var firstTime = !l.done;
+    l.done = true; l.n++; l.best = Math.max(l.best, acc); S.lessons[k] = l;
+    S.cnt.lessons++; if (L.sid === 'bio') S.cnt.lessonsBio++; else S.cnt.lessonsChem++;
+    if (firstTime) { var nt = nextTopic(L.sid); if (nt && nt.id !== L.tid) toast('🔓 Отключено: ' + nt.title); }
   }
-  t.open.forEach(function (o, i) {
-    var k = K(S.subj, t.id, 'o', i), r = S.opens[k];
-    h += '<div class="open"><div class="eyebrow" style="color:var(--violet)">Отворен въпрос · оценява Claude</div><div class="prompt">' + o.p + '</div>' +
-      '<div class="row">' + (r && r.best != null ? '<span class="tag v">най-добър резултат ' + r.best + '%</span>' : '') +
-      '<button class="btn violet" data-act="openSel" data-k="' + esc(k) + '">✍️ Отговори писмено</button></div></div>';
-  });
-  var idx = cur().topics.indexOf(t), ts = cur().topics;
-  h += '<div class="between">' + (idx > 0 ? '<button class="btn ghost" data-act="topic" data-tid="' + esc(ts[idx - 1].id) + '">← ' + esc(ts[idx - 1].title) + '</button>' : '<span></span>') +
-    (idx < ts.length - 1 ? '<button class="btn" data-act="topic" data-tid="' + esc(ts[idx + 1].id) + '">' + esc(ts[idx + 1].title) + ' →</button>' : '') + '</div>';
+  var goalBefore = dayDone(today());
+  L.xp += bonus;
+  addXP(bonus, 0);
+  var endM = L.tid ? topicMastery(L.sid, topicById(L.sid, L.tid)).pct : null;
+  L.res = { acc: acc, bonus: bonus, endM: endM, goalNow: dayDone(today()), goalBefore: goalBefore };
+  checkBlocks(L.sid); checkAch();
+  L.res.ach = U.newAch.slice(); U.newAch = [];
+  save();
+}
+function lessonResultHTML() {
+  var L = U.L, r = L.res, st = streak(), sub = SUBJ[L.sid];
+  var mood = r.acc >= 90 ? 'celebrate' : r.acc >= 60 ? 'happy' : 'wave';
+  var title = r.acc >= 90 ? '🎉 Отлична работа!' : r.acc >= 60 ? '👏 Браво, продължавай!' : '💪 Добро начало!';
+  if (r.acc >= 90 && !r.conf) { r.conf = true; setTimeout(confetti, 80); }
+  var h = '<div class="results">' + P(mood, L.mode === 'lesson' ? 'cap' : 'steth') + '<h2>' + title + '</h2>' +
+    '<div class="rstats"><div class="rstat xp"><div class="h">Общо XP</div><div class="v">+' + L.xp + '</div></div>' +
+    '<div class="rstat ok"><div class="h">Точност</div><div class="v">' + r.acc + '%</div></div>' +
+    '<div class="rstat fire"><div class="h">Серия</div><div class="v">🔥 ' + st + '</div></div></div>';
+  if (r.goalNow) h += '<div class="goaltxt" style="font-size:17px">' + (r.goalBefore ? '🔥 Серията продължава!' : '🔥 Дневната цел е изпълнена — серията продължава!') + '</div>';
+  else h += '<div class="small muted" style="font-weight:800">Още ' + (goal() - todayXP()) + ' XP до днешната цел</div>';
+  if (L.tid && r.endM != null) h += '<div class="mastery-delta">' + sub.icon + ' ' + esc(L.title) + ': ' + L.startM + '% <span class="arrow">→</span> ' + r.endM + '%</div>';
+  if (r.bonus) h += '<div class="small muted" style="font-weight:800">Бонус за завършване: +' + r.bonus + ' XP' + (L.firstN && L.firstOk === L.firstN ? ' (включва бонус за безупречен урок 🎯)' : '') + '</div>';
+  if (L.fixed) h += '<div class="small" style="font-weight:800;margin-top:6px">💪 Поправи ' + L.fixed + ' ' + pl(L.fixed, 'грешка', 'грешки') + ' още в урока!</div>';
+  (r.ach || []).forEach(function (a) { h += '<div class="achrow"><span class="b">' + a.b + '</span><div>🏆 Ново постижение отключено!<div class="small muted">' + esc(a.t) + ' — ' + esc(a.d) + '</div></div></div>'; });
+  h += '</div><div class="grid2">' +
+    (L.wrong ? '<button class="btn ghost" data-act="reviewStart" data-all="0">❤️ Преговори грешките</button>' : '<button class="btn ghost" data-act="go" data-v="home">🏠 Начало</button>') +
+    '<button class="btn" id="primary" data-act="lessonExit">Продължи</button></div>';
   return h;
 }
 
-/* въпрос с избор и незабавна обратна връзка */
-function mcqHTML(key, q, n, pick, act) {
-  var done = pick != null;
-  var h = '<div class="q"><div class="qstem">' + (n ? '<span class="qn">' + n + '.</span>' : '') + q.s + '</div><div class="opts">';
-  q.o.forEach(function (o, j) {
-    var cls = '';
-    if (done) { if (j === q.a) cls = ' right'; else if (j === pick) cls = ' wrong'; }
-    h += '<button class="opt' + cls + '" data-act="' + act + '" data-k="' + esc(key) + '" data-j="' + j + '"' + (done ? ' disabled' : '') + '><span class="k">' + LETTERS[j] + '</span><span>' + o + '</span></button>';
-  });
+/* ================= ОТВОРЕН ВЪПРОС (общ панел) ================= */
+function openPanelHTML(key, ctx) {
+  var it = item(key), r = S.opens[key] || {}, g = U.grading[key] || {}, o = it.d;
+  var words = (r.draft || '').trim() ? (r.draft || '').trim().split(/\s+/).length : 0;
+  var h = '<div class="learncard"><div class="small muted" style="font-weight:800">' + SUBJ[it.sid].icon + ' ' + esc(it.t.title) + '</div><div class="oprompt">' + o.p + '</div>';
+  if (o.cues && U.showCues[key]) h += '<div class="note mb"><b>Подсказки:</b><ul style="margin:6px 0 0;padding-left:20px">' + o.cues.map(function (c) { return '<li>' + esc(c) + '</li>'; }).join('') + '</ul></div>';
+  h += '<textarea class="tin" id="openText" data-inp="draft" data-k="' + esc(key) + '" placeholder="Напиши пълен отговор със свързан текст и точни научни термини…">' + esc(r.draft || '') + '</textarea>' +
+    '<div class="between small muted" style="margin-top:8px;font-weight:700"><span id="wc">' + words + ' ' + pl(words, 'дума', 'думи') + '</span><span>Черновата се пази автоматично</span></div>';
+  if (g.busy) h += '<div class="loading">' + P('think', 'clipboard') + '<div><b>Д-р Панда и комисията четат отговора ти…</b><div class="small muted">Обикновено отнема 10–40 секунди.</div></div></div>';
+  else h += '<button class="btn block big ach mt" data-act="openGrade" data-k="' + esc(key) + '" data-ctx="' + ctx + '">🎓 Оцени с Claude</button>';
+  h += '<div class="row mt"><button class="btn ghost sm" data-act="openKey" data-k="' + esc(key) + '">' + (U.showKey[key] ? 'Скрий ключа' : '🔑 Покажи ключа') + '</button>' +
+    (o.cues ? '<button class="btn ghost sm" data-act="openCues" data-k="' + esc(key) + '">' + (U.showCues[key] ? 'Скрий подсказките' : '💡 Подсказки') + '</button>' : '') +
+    '<button class="btn ghost sm" data-act="openModel" data-k="' + esc(key) + '"' + (U.model[key] && U.model[key].busy ? ' disabled' : '') + '>✨ Образцов отговор</button></div>';
+  if (!getApiKey()) h += '<div class="note mt">За AI оценка добави своя Anthropic API ключ в <button class="linkbtn" data-act="go" data-v="settings">Настройки</button>. Без ключ можеш да сравниш отговора си с ключа сам.</div>';
+  if (g.err) h += '<div class="err mt">' + esc(g.err) + '</div>';
   h += '</div>';
-  if (done) h += fbHTML(q, pick);
-  return h + '</div>';
+  if (r.last) h += gradeHTML(r.last, r.best);
+  if (U.showKey[key]) h += '<div class="learncard"><h3 class="sec">🔑 Официален ключ</h3><ul class="rub">' + o.must.map(function (m) { return '<li>' + m + '</li>'; }).join('') + '</ul></div>';
+  var md = U.model[key] || (r.model ? { text: r.model } : null);
+  if (md) h += '<div class="learncard"><h3 class="sec">✨ Как звучи отговор за 6</h3>' + (md.busy ? '<div class="loading">' + P('think', 'cap') + '<b>Пиша образеца…</b></div>' : md.err ? '<div class="err">' + esc(md.err) + '</div>' : '<div class="model">' + esc(md.text) + '</div>') + '</div>';
+  return h;
 }
-function fbHTML(q, pick) {
-  var ok = pick === q.a;
-  return '<div class="fb ' + (ok ? 'good' : 'bad') + '"><div class="lab">' + (ok ? 'Вярно' : pick === -1 ? 'Без отговор. Верният отговор е ' + LETTERS[q.a] : 'Грешно. Верният отговор е ' + LETTERS[q.a]) + '</div>' +
-    (q.why ? '<div>' + q.why + '</div>' : '') + (q.trap ? '<div class="trap"><b>Капан:</b> ' + q.trap + '</div>' : '') + '</div>';
+function gradeHTML(g, best) {
+  var mark = markOf(g.score / 100), mood = g.score >= 80 ? 'celebrate' : g.score >= 50 ? 'happy' : 'sad';
+  var col = g.score >= 80 ? 'var(--ok)' : g.score >= 50 ? 'var(--xp)' : 'var(--bad)';
+  var say = g.score >= 80 ? 'Като на истинския изпит — браво!' : g.score >= 50 ? 'Добра основа. Допълни пропуснатото и ще е шестица!' : 'Не се отказвай — виж какво липсва и опитай пак 💪';
+  function list(title, arr) { return arr && arr.length ? '<h4>' + title + '</h4><ul>' + arr.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : ''; }
+  return '<div class="grade"><div class="gscore">' + ring(g.score, '<b>' + g.score + '%</b>', 96, col) + '<div style="flex:1;min-width:0"><div class="row" style="gap:6px"><span class="tag ' + (g.score >= 80 ? 'ok' : g.score >= 50 ? 'xp' : 'bad') + '">' + markWord(mark) + ' ' + mark.toFixed(2) + '</span>' +
+    (g.xp != null ? '<span class="tag xp">+' + g.xp + ' XP</span>' : '') + '</div>' + (best != null ? '<div class="small muted" style="margin-top:4px;font-weight:700">Най-добър резултат: ' + best + '%</div>' : '') + '</div>' + P(mood, 'clipboard', 70) + '</div>' +
+    '<div class="coach mt" style="margin-bottom:0"><div class="say">' + esc(g.summary || say) + '</div></div>' +
+    (g.missed_terms && g.missed_terms.length ? '<h4>📌 Пропусната / неточна терминология</h4><div class="tchips">' + g.missed_terms.map(function (x) { return '<span class="tchip">' + esc(x) + '</span>'; }).join('') + '</div>' : '') +
+    list('❌ Липсва в отговора', g.missed) + list('⚠️ Грешки', g.errors) + list('✅ Вярно покрито', g.covered) + list('💡 Как да стане за 6', g.advice) +
+    (g.at ? '<div class="small muted mt">Оценено на ' + esc(fmtDate(g.at)) + (g.model ? ' · ' + esc(g.model) : '') + '</div>' : '') + '</div>';
+}
+function gradeOpen(key, ctx) {
+  var it = item(key); if (!it) return;
+  var r = S.opens[key] = S.opens[key] || {}, txt = (r.draft || '').trim();
+  U.grading[key] = {};
+  if (!getApiKey()) { U.grading[key] = { err: 'Няма API ключ. Добави го в „Настройки“.' }; return render(); }
+  if (txt.length < 20) { U.grading[key] = { err: 'Отговорът е твърде кратък — напиши поне едно-две изречения.' }; return render(); }
+  U.grading[key] = { busy: true }; render();
+  claude({ system: examinerSystem(it.sid), prompt: gradePrompt(it, txt), schema: GRADE_SCHEMA, effort: 'medium' })
+    .then(function (res) {
+      var g = parseGrade(res.text);
+      if (!g) throw new ApiError('parse', 'Не успях да прочета оценката. Опитай отново.');
+      var prev = r.best == null ? 0 : r.best;
+      g.xp = Math.max(0, Math.round((g.score - prev) / 2));
+      g.at = today(); g.model = S.settings.model;
+      r.last = g; r.n = (r.n || 0) + 1; r.best = Math.max(prev, g.score);
+      S.cnt.ai++; if (g.score >= 90) S.cnt.ai90++;
+      logAnswer(g.score >= 60);
+      record(key, g.score >= 60);
+      U.grading[key] = {};
+      if (ctx === 'lesson' && U.L && !U.L.done && U.L.steps[U.L.at] && U.L.steps[U.L.at].key === key) { U.L.xp += g.xp; U.L.st.checked = true; }
+      addXP(g.xp, 1);
+      checkBlocks(it.sid);
+      if (g.score >= 80) confetti();
+    })
+    .catch(function (e) { U.grading[key] = { err: e && e.message ? e.message : 'Неочаквана грешка.' }; })
+    .then(function () { if ((U.v === 'open' && U.oKey === key) || (U.v === 'lesson' && U.L)) render(); });
+}
+function modelAnswer(key) {
+  var it = item(key); if (!it) return;
+  if (!getApiKey()) { U.grading[key] = { err: 'Образцовият отговор също се генерира от Claude — добави API ключ в „Настройки“.' }; return render(); }
+  U.model[key] = { busy: true }; render();
+  var prompt = 'Напиши образцов писмен отговор за отлична оценка (6) на въпрос от конкурсния изпит по ' + (it.sid === 'chem' ? 'химия' : 'биология') + ' за медицински университет в България.\n\n' +
+    'ТЕМА: ' + plain(it.t.title) + '\nВЪПРОС: ' + plain(it.d.p) + '\n\nОтговорът трябва да покрива всички елементи:\n- ' + it.d.must.map(plain).join('\n- ') + '\n\n' +
+    'Изисквания: на български; точни научни термини; свързан текст в кратки абзаци, без заглавия, списъци и markdown; около 200–250 думи. Върни само самия отговор.';
+  claude({ prompt: prompt, effort: 'low', maxTokens: 4000 })
+    .then(function (res) { var txt = res.text.replace(/\*\*/g, '').trim(); U.model[key] = { text: txt }; S.opens[key] = S.opens[key] || {}; S.opens[key].model = txt; save(); })
+    .catch(function (e) { U.model[key] = { err: e.message || 'Образецът не се зареди.' }; })
+    .then(function () { if (U.v === 'open' || U.v === 'lesson') render(); });
+}
+function openListHTML() {
+  var sub = cur(), keys = keysOf(S.subj, 'o'), done = keys.filter(function (k) { return S.opens[k] && S.opens[k].best != null; }).length;
+  var h = modeHead('mh-ai', 'think', 'clipboard', 'AI оценяване', '🤖 Отворени въпроси', 'Пишеш пълен отговор — Claude го проверява като строг изпитващ от МУ спрямо официалния ключ.') + subjToggle();
+  h += '<div class="card tight"><div class="between"><b>Оценени: ' + done + '/' + keys.length + '</b><span class="tag xp">XP = ½ от процента</span></div>' +
+    (getApiKey() ? '' : '<div class="note mt">Няма API ключ — можеш да пишеш и да сравняваш с ключа сам. За AI оценка: <button class="linkbtn" data-act="go" data-v="settings">Настройки</button>.</div>') + '</div>';
+  sub.order.forEach(function (b) {
+    var ts = sub.topics.filter(function (t) { return t.block === b && t.open.length; });
+    if (!ts.length) return;
+    h += '<div class="blockhead">' + blockLabel(b) + ' · ' + esc(sub.blocks[b]) + '</div>';
+    ts.forEach(function (t) {
+      t.open.forEach(function (o, i) {
+        var k = K(S.subj, t.id, 'o', i), r = S.opens[k];
+        h += '<button class="listrow" data-act="openSel" data-k="' + esc(k) + '"><span class="ic">' + topicIcon(S.subj, t) + '</span><span class="tx"><small>' + esc(t.title) + '</small><b class="clamp">' + plain(o.p) + '</b></span>' +
+          (r && r.best != null ? '<span class="tag ' + (r.best >= 80 ? 'ok' : r.best >= 50 ? 'xp' : 'bad') + '">' + r.best + '%</span>' : r && r.draft ? '<span class="tag">чернова</span>' : '<span class="tag ach">+50</span>') + '</button>';
+      });
+    });
+  });
+  return h;
+}
+function openPageHTML() {
+  var it = item(U.oKey); if (!it) { U.oKey = null; return openListHTML(); }
+  return '<div class="row mb"><button class="btn ghost sm" data-act="openBack">← Всички въпроси</button><button class="btn ghost sm" data-act="topicFrom" data-sid="' + it.sid + '" data-tid="' + esc(it.t.id) + '">📖 Учебник</button></div>' + openPanelHTML(U.oKey, 'page');
 }
 
-/* ---------- ИЗБОР НА ОБХВАТ ---------- */
+/* ================= НАЗОВИ ТЕРМИНА ================= */
 function scopeHTML(withTopics) {
   var sub = cur(), h = '<div class="choice"><button class="' + (U.scope === 'all' ? 'on' : '') + '" data-act="scope" data-s="all">Всички</button>';
-  sub.order.forEach(function (b) { h += '<button class="' + (U.scope === 'b:' + b ? 'on' : '') + '" data-act="scope" data-s="b:' + b + '">' + esc(sub.blocks[b].split('·')[0].trim()) + '</button>'; });
+  sub.order.forEach(function (b) { if (sub.topics.some(function (t) { return t.block === b; })) h += '<button class="' + (U.scope === 'b:' + b ? 'on' : '') + '" data-act="scope" data-s="b:' + b + '">' + blockLabel(b) + '</button>'; });
   h += '</div>';
-  if (withTopics) {
-    h += '<select class="tin mt" data-chg="scopeTopic"><option value="">— или избери конкретна тема —</option>' +
-      sub.topics.filter(function (t) { return t.terms.length; }).map(function (t) { return '<option value="t:' + esc(t.id) + '"' + (U.scope === 't:' + t.id ? ' selected' : '') + '>' + esc(t.title) + ' (' + t.terms.length + ')</option>'; }).join('') + '</select>';
-  }
+  if (withTopics) h += '<select class="tin mt" data-chg="scopeTopic"><option value="">— или избери конкретна тема —</option>' +
+    sub.topics.filter(function (t) { return t.terms.length; }).map(function (t) { return '<option value="t:' + esc(t.id) + '"' + (U.scope === 't:' + t.id ? ' selected' : '') + '>' + esc(t.title) + ' (' + t.terms.length + ')</option>'; }).join('') + '</select>';
   return h;
 }
 function scopeFilter() {
@@ -624,94 +993,36 @@ function scopeFilter() {
   if (s.indexOf('t:') === 0) { var id = s.slice(2); return function (t) { return t.id === id; }; }
   return null;
 }
-
-/* ---------- НАЗОВИ ТЕРМИНА ---------- */
 function termsCfgHTML() {
-  var pool = keysOf(S.subj, 't', scopeFilter());
-  var known = keysOf(S.subj, 't').filter(function (k) { var r = S.terms[k]; return r && r.ok; }).length, total = keysOf(S.subj, 't').length;
-  return '<div class="card"><div class="eyebrow">Игра</div><h2 class="title">Назови термина</h2>' +
-    '<div class="muted">Виждаш научно определение — пишеш точния термин. Проверката е мигновена: <b>+' + XP.term + ' XP</b> за точен отговор, <b>+' + XP.termTypo + '</b> при малка правописна грешка, подсказката струва ' + XP.hint + ' XP. Пропуснатите отиват в „Грешките ми“.</div></div>' +
-    '<div class="card"><h3 class="sec">Откъде да са термините?</h3>' + scopeHTML(true) +
-    '<div class="between mt"><span class="muted small">В избора: ' + pool.length + ' термина · знаеш ' + known + ' от ' + total + ' общо</span>' +
-    '<button class="btn" data-act="termsStart"' + (pool.length ? '' : ' disabled') + '>Започни (' + Math.min(TERMS_N, pool.length) + ')</button></div></div>';
-}
-function startTerms(keys) {
-  stopTimer();
-  U.run = { ctx: 'terms', list: shuffle(keys).slice(0, TERMS_N), at: 0, right: 0, wrong: 0, combo: 0, xp: 0, st: freshSt() };
-}
-function freshSt() { return { done: false, ok: false, typo: false, given: '', hint: 0, pick: null }; }
-
-/* общ „ход“ за Назови термина и за повторението на грешките */
-function runHTML() {
-  var R = U.run;
-  if (R.at >= R.list.length) return runEndHTML();
-  var it = item(R.list[R.at]);
-  if (!it) { R.at++; return runHTML(); }
-  var h = '<div class="gamehead"><div><span class="lbl">' + (R.ctx === 'terms' ? 'Назови термина' : 'Повторение') + '</span><span class="big">' + (R.at + 1) + '/' + R.list.length + '</span></div>' +
-    '<div><span class="lbl">верни</span><span class="big">' + R.right + '</span></div>' +
-    '<div><span class="lbl">серия</span><span class="mult">' + (R.combo >= 3 ? '🔥' : '') + R.combo + '</span></div>' +
-    '<div><span class="lbl">XP</span><span class="big">+' + R.xp + '</span></div><div class="grow"></div>' +
-    '<button class="btn sm ghost" style="color:#EEF3EF;border-color:#55665E" data-act="runQuit">Край</button></div>';
-  h += '<div class="card"><div class="eyebrow">' + esc(SUBJ[it.sid].short) + ' · ' + esc(it.t.title) + '</div>';
-  if (it.type === 't') h += termCardHTML(it, R.st);
-  else if (it.type === 'q') h += mcqHTML(it.key, it.d, null, R.st.pick, 'runPick') + (R.st.done ? nextBtnHTML() : '');
-  else h += '<div class="prompt" style="font-family:var(--serif);font-size:19px;margin:6px 0 12px">' + it.d.p + '</div>' +
-    '<div class="row"><button class="btn violet" data-act="openSel" data-k="' + esc(it.key) + '">✍️ Отговори и оцени с Claude</button><button class="btn ghost" data-act="runNext">Пропусни</button></div>';
-  return h + '</div>';
-}
-function termCardHTML(it, st) {
-  var term = it.d[0], def = it.d[1];
-  var h = '<div class="small muted">Определение:</div><div class="defcard">' + maskDef(def, term) + '</div>';
-  if (!st.done) {
-    var hint = '';
-    if (st.hint) {
-      var w = termAnswers(term)[0] || '', show = st.hint === 1 ? 1 : Math.min(3, w.length);
-      hint = '<div class="hintline">' + esc(w.slice(0, show).toUpperCase()) + w.slice(show).replace(/[^\s-]/g, '_') + '</div>';
-    }
-    h += hint + '<form data-form="termCheck" autocomplete="off"><input id="termInput" class="tin" placeholder="Напиши термина…" value="' + esc(st.given) + '" spellcheck="false">' +
-      '<div class="row mt"><button class="btn" type="submit">Провери ↵</button>' +
-      '<button class="btn ghost" type="button" data-act="termHint"' + (st.hint >= 2 ? ' disabled' : '') + '>💡 Подсказка (−' + XP.hint + ' XP)</button>' +
-      '<button class="btn ghost" type="button" data-act="termSkip">Не знам</button></div></form>';
-  } else {
-    h += '<div class="fb ' + (st.ok ? 'good' : 'bad') + '"><div class="lab">' +
-      (st.ok ? (st.typo ? '✅ Приема се — но внимавай с правописа.' : '✅ Точно!') : '❌ ' + (st.given ? 'Не е това.' : 'Пропуснат.')) + '</div>' +
-      (st.given ? '<div>Ти написа: <b>' + esc(st.given) + '</b></div>' : '') +
-      '<div>Терминът е: <b>' + esc(term) + '</b></div><div class="trap">' + def + '</div></div>' + nextBtnHTML();
-  }
-  return h;
-}
-function nextBtnHTML() { return '<div class="row end mt"><button class="btn" id="nextBtn" data-act="runNext">Следващ →</button></div>'; }
-function runEndHTML() {
-  var R = U.run, n = R.right + R.wrong;
-  return '<div class="card"><div class="eyebrow">' + (R.ctx === 'terms' ? 'Назови термина' : 'Повторение на грешките') + ' — край</div>' +
-    '<div class="row" style="gap:22px"><div class="result">' + R.right + '/' + n + '</div><div><b>+' + R.xp + ' XP</b><div class="muted">' + pct(R.right, n) + '% верни' +
-    (R.wrong ? ' · ' + R.wrong + ' ' + pl(R.wrong, 'отиде', 'отидоха') + ' в „Грешките ми“' : '') + '</div></div></div>' +
-    '<div class="row mt"><button class="btn" data-act="' + (R.ctx === 'terms' ? 'termsAgain' : 'go') + '" data-v="mistakes">' + (R.ctx === 'terms' ? 'Още един рунд' : 'Към грешките') + '</button>' +
-    '<button class="btn ghost" data-act="go" data-v="home">Начало</button></div></div>';
-}
-function runAnswer(ok, xp) {
-  var R = U.run;
-  R.st.done = true; R.st.ok = ok;
-  if (ok) { R.right++; R.combo++; } else { R.wrong++; R.combo = 0; }
-  R.xp += xp;
-  activity(1, xp);
+  var pool = keysOf(S.subj, 't', scopeFilter()), all = keysOf(S.subj, 't');
+  var known = all.filter(function (k) { var r = S.terms[k]; return r && r.ok; }).length;
+  return modeHead('mh-term', 'think', cur().acc, 'Игра', '🎯 Назови термина', 'Виждаш определение — пишеш точния термин. Проверката е мигновена.') + subjToggle() +
+    '<div class="card"><div class="row mb" style="gap:6px"><span class="tag xp">+' + XP.term + ' XP точен</span><span class="tag">+' + XP.termTypo + ' с правописна грешка</span><span class="tag fire">💡 −' + XP.hint + ' XP</span></div>' +
+    '<label class="fl">Знаеш ' + known + ' от ' + all.length + ' термина</label>' + bar(pct(known, all.length), 'xp') +
+    '<h3 class="sec mt">Откъде да са термините?</h3>' + scopeHTML(true) +
+    '<button class="btn block big mt" data-act="termsStart"' + (pool.length ? '' : ' disabled') + '>▶ Започни (' + Math.min(TERMS_N, pool.length) + ' термина)</button></div>';
 }
 
-/* ---------- БЪРЗ ОГЪН ---------- */
+/* ================= БЪРЗ ОГЪН ================= */
 function multOf(c) { return c >= 10 ? 3 : c >= 6 ? 2 : c >= 3 ? 1.5 : 1; }
+function rapidSec(at) { return Math.max(7, 15 - Math.floor(at / 3)); }
 function rapidCfgHTML() {
   var pool = keysOf(S.subj, 'q', scopeFilter()), best = S.rapidBest[S.subj] || 0;
-  return '<div class="card"><div class="eyebrow">Игра</div><h2 class="title">⚡ Бърз огън</h2>' +
-    '<div class="muted">' + RAPID_N + ' въпроса, по ' + RAPID_SEC + ' секунди на всеки. Всеки верен отговор вдига комбото: 3 поредни → <b>×1.5</b>, 6 → <b>×2</b>, 10 → <b>×3</b>. ' +
-    'Грешка или изтекло време нулира комбото. Бонус точки за всяка спестена секунда. Клавиши <b>1–4</b> за отговор, <b>Enter</b> за следващ.</div></div>' +
-    '<div class="card"><h3 class="sec">Обхват</h3>' + scopeHTML(false) +
-    '<div class="between mt"><span class="muted small">' + pool.length + ' въпроса в избора · рекорд: <b>' + best + '</b> т.</span>' +
-    '<button class="btn" data-act="rapidStart"' + (pool.length ? '' : ' disabled') + '>Старт</button></div></div>';
+  return modeHead('mh-fire', 'surprised', 'steth', 'Игра', '🔥 Бърз огън', RAPID_N + ' въпроса, времето намалява, а трудността расте.') + subjToggle() +
+    '<div class="card"><div class="grid3" style="grid-template-columns:repeat(4,minmax(0,1fr))">' +
+    [['3', '×1.5'], ['6', '×2'], ['10', '×3'], ['⏱️', 'бонус']].map(function (x) { return '<div class="center"><div class="ring" style="--p:100;--s:58px;--c:var(--fire);margin:0 auto"><b style="font-size:15px">' + x[1] + '</b></div><div class="small muted" style="font-weight:800;margin-top:4px">' + (x[0] === '⏱️' ? 'за скорост' : x[0] + ' поредни') + '</div></div>'; }).join('') + '</div>' +
+    '<p class="small muted" style="font-weight:700">Грешка или изтекло време нулира комбото. Клавиши <b>1–4</b> за отговор, <b>Enter</b> за следващ.</p>' +
+    '<h3 class="sec">Обхват</h3>' + scopeHTML(false) +
+    '<div class="between mt"><span class="tag xp">🏆 Рекорд: ' + best + ' т.</span><span class="small muted">' + pool.length + ' въпроса</span></div>' +
+    '<button class="btn block big fire mt" data-act="rapidStart"' + (pool.length ? '' : ' disabled') + '>🔥 Старт</button></div>';
 }
 function startRapid() {
-  var pool = keysOf(S.subj, 'q', scopeFilter());
-  U.rapid = { list: shuffle(pool).slice(0, RAPID_N), at: 0, combo: 0, maxCombo: 0, score: 0, right: 0, xp: 0, left: RAPID_SEC, pick: null, pts: 0 };
-  rapidTimer();
+  var filter = scopeFilter(), sub = cur();
+  /* по-ранните блокове първо — трудността расте */
+  var pool = shuffle(keysOf(S.subj, 'q', filter)).slice(0, RAPID_N);
+  pool.sort(function (a, b) { return sub.order.indexOf(item(a).t.block) - sub.order.indexOf(item(b).t.block); });
+  U.rapid = { list: pool, at: 0, combo: 0, maxCombo: 0, score: 0, right: 0, xp: 0, left: rapidSec(0), pick: null, pts: 0 };
+  U.v = 'rapid'; rapidTimer(); render(); window.scrollTo(0, 0);
 }
 function rapidTimer() {
   stopTimer();
@@ -719,7 +1030,7 @@ function rapidTimer() {
     var R = U.rapid; if (!R || R.pick != null) return stopTimer();
     R.left--;
     var el = document.getElementById('clock');
-    if (el) { el.textContent = R.left + 's'; el.classList.toggle('low', R.left <= 5); }
+    if (el) { el.textContent = R.left + 's'; el.classList.toggle('low', R.left <= 4); }
     if (R.left <= 0) rapidPick(-1);
   }, 1000);
 }
@@ -727,59 +1038,78 @@ function rapidPick(j) {
   var R = U.rapid; if (!R || R.pick != null) return;
   stopTimer();
   var it = item(R.list[R.at]), ok = j === it.d.a;
-  R.pick = j;
-  S.mcq[it.key] = ok ? 1 : 0;
-  record(it.key, ok);
+  R.pick = j; S.mcq[it.key] = ok ? 1 : 0; record(it.key, ok); logAnswer(ok);
   if (ok) {
     R.combo++; R.maxCombo = Math.max(R.maxCombo, R.combo); R.right++;
-    var m = multOf(R.combo); R.pts = Math.round(10 * m) + Math.max(0, R.left);
+    if (R.combo > S.cnt.comboMax) S.cnt.comboMax = R.combo;
+    R.pts = Math.round(10 * multOf(R.combo)) + Math.max(0, R.left);
     R.score += R.pts;
-    var xp = Math.round(R.pts / 2); R.xp += xp; activity(1, xp);
-    if (R.combo === 3 || R.combo === 6 || R.combo === 10) toast('🔥 Комбо ' + R.combo + '! Множител ×' + multOf(R.combo));
-  } else { R.combo = 0; R.pts = 0; activity(1, 0); }
+    var xp = Math.round(R.pts / 2); R.xp += xp; addXP(xp, 1);
+  } else { R.combo = 0; R.pts = 0; addXP(0, 1); }
   render();
 }
 function rapidHTML() {
   var R = U.rapid;
   if (R.at >= R.list.length) {
     var best = S.rapidBest[S.subj] || 0, rec = R.score > best;
-    if (rec && !R.saved) { S.rapidBest[S.subj] = R.score; save(); toast('🏆 Нов рекорд в Бърз огън: ' + R.score + ' т.', true); }
+    if (rec && !R.saved) { S.rapidBest[S.subj] = R.score; save(); if (R.score) confetti(); }
     R.saved = true;
-    return '<div class="card"><div class="eyebrow">⚡ Бърз огън — край</div><div class="row" style="gap:22px"><div class="result">' + R.score + '</div><div>' +
-      (rec ? '<span class="tag ok">нов рекорд</span><br>' : '<span class="muted">рекорд: ' + Math.max(best, R.score) + '</span><br>') +
-      '<b>' + R.right + '/' + R.list.length + '</b> верни · най-дълго комбо <b>' + R.maxCombo + '</b> · <b>+' + R.xp + ' XP</b></div></div>' +
-      '<div class="row mt"><button class="btn" data-act="rapidStart">Пак!</button><button class="btn ghost" data-act="go" data-v="mistakes">Грешките ми</button></div></div>';
+    return '<div class="results">' + P(rec ? 'celebrate' : 'happy', 'steth') + '<h2>' + (rec ? '🏆 Нов рекорд!' : '🔥 Край на огъня!') + '</h2>' +
+      '<div class="rstats"><div class="rstat xp"><div class="h">Точки</div><div class="v">' + R.score + '</div></div><div class="rstat ok"><div class="h">Верни</div><div class="v">' + R.right + '/' + R.list.length + '</div></div>' +
+      '<div class="rstat fire"><div class="h">Комбо</div><div class="v">' + R.maxCombo + '</div></div></div><div class="tag xp">+' + R.xp + ' XP</div></div>' +
+      '<div class="grid2"><button class="btn ghost" data-act="rapidMenu">Назад</button><button class="btn fire" id="primary" data-act="rapidStart">Пак!</button></div>';
   }
-  var it = item(R.list[R.at]), m = multOf(R.combo);
-  var h = '<div class="gamehead"><div><span class="lbl">въпрос</span><span class="big">' + (R.at + 1) + '/' + R.list.length + '</span></div>' +
-    '<div><span class="lbl">време</span><span class="big timer' + (R.left <= 5 ? ' low' : '') + '" id="clock">' + R.left + 's</span></div>' +
-    '<div><span class="lbl">комбо</span><span class="mult' + (R.pick != null && R.pick === it.d.a ? ' combo-pop' : '') + '">×' + m + ' · ' + R.combo + '</span></div>' +
-    '<div><span class="lbl">точки</span><span class="big">' + R.score + '</span></div><div class="grow"></div>' +
-    '<button class="btn sm ghost" style="color:#EEF3EF;border-color:#55665E" data-act="rapidQuit">Край</button></div>';
-  h += '<div class="card"><div class="eyebrow">' + esc(it.t.title) + '</div>' + mcqHTML(it.key, it.d, null, R.pick, 'rapidPick');
-  if (R.pick != null) h += '<div class="between mt"><span>' + (R.pts ? '<b>+' + R.pts + '</b> точки' : 'Комбото е нулирано.') + '</span><button class="btn" id="nextBtn" data-act="rapidNext">Следващ →</button></div>';
-  return h + '</div>';
-}
-
-/* ---------- ТЕСТ НА СЛУЧАЕН ПРИНЦИП и ШЕФЪТ НА БЛОКА ---------- */
-function mockCfgHTML() {
-  var poolN = keysOf('bio', 'q').length + keysOf('chem', 'q').length, subN = keysOf(S.subj, 'q').length;
-  var h = '<div class="card"><div class="eyebrow">Пробен изпит</div><h2 class="title">📝 Тест на случаен принцип</h2>' +
-    '<div class="muted">Генерира тест от случайни въпроси. Отговорите не се показват до предаването — точно като на изпита. Накрая получаваш оценка по шестобалната система (2 + 4 × дял верни) и разбор на грешките.</div></div>' +
-    '<div class="card"><label class="fl">Предмет</label><div class="choice"><button class="' + (!U.mockBoth ? 'on' : '') + '" data-act="mockBoth" data-b="0">Само ' + esc(cur().short) + ' (' + subN + ')</button>' +
-    '<button class="' + (U.mockBoth ? 'on' : '') + '" data-act="mockBoth" data-b="1">Биология + Химия (' + poolN + ')</button></div>' +
-    '<label class="fl mt">Брой въпроси</label><div class="choice">' + [10, 20, 30, 50].map(function (n) { return '<button class="' + (U.mockN === n ? 'on' : '') + '" data-act="mockN" data-n="' + n + '">' + n + '</button>'; }).join('') + '</div>' +
-    '<div class="between mt"><span class="small muted">Време: ' + Math.round(U.mockN * 1.25) + ' минути</span><button class="btn" data-act="mockStart">Генерирай тест</button></div></div>';
-  if (S.mocks.length) {
-    h += '<div class="card"><h3 class="sec">Последни тестове</h3>' + S.mocks.slice(-8).reverse().map(function (m) {
-      return '<div class="meterrow"><div>' + fmtDate(m.d) + ' · ' + (m.sid === 'both' ? 'Биология + Химия' : SUBJ[m.sid].short) + ' · ' + m.right + '/' + m.n + '</div>' +
-        '<div class="bar"><i style="width:' + pct(m.right, m.n) + '%"></i></div><div class="pct"><b>' + m.mark.toFixed(2) + '</b></div></div>';
-    }).join('') + '</div>';
+  var it = item(R.list[R.at]), m = multOf(R.combo), ok = R.pick != null && R.pick === it.d.a;
+  var h = '<div class="ghead"><button class="xbtn" data-act="rapidQuit">✕</button>' +
+    '<div class="gstat"><small>въпрос</small><b>' + (R.at + 1) + '/' + R.list.length + '</b></div>' +
+    '<div class="gstat"><small>време</small><b class="timer' + (R.left <= 4 ? ' low' : '') + '" id="clock">' + R.left + 's</b></div>' +
+    '<div class="gstat fire"><small>комбо</small><b class="mult' + (ok ? ' pop' : '') + '">×' + m + '</b></div>' +
+    '<div class="gstat xp"><small>точки</small><b>' + R.score + '</b></div></div>';
+  h += bar(pct(R.at, R.list.length), 'fire thin') + '<div class="small muted mt" style="font-weight:800">' + esc(it.t.title) + (R.combo >= 2 ? ' · 🔥 ' + R.combo + ' поредни' : '') + '</div><div class="lq">' + it.d.s + '</div><div class="opts' + (R.pick != null && !ok ? ' shake' : '') + '">';
+  it.d.o.forEach(function (o, j) {
+    var cls = R.pick != null ? (j === it.d.a ? ' right' : j === R.pick ? ' wrong' : '') : '';
+    h += '<button class="opt' + cls + '" data-act="rapidPick" data-j="' + j + '"' + (R.pick != null ? ' disabled' : '') + '><span class="k">' + (j + 1) + '</span><span>' + o + '</span></button>';
+  });
+  h += '</div><div class="spacer"></div>';
+  if (R.pick != null) {
+    h += '<div class="fbar slide ' + (ok ? 'good' : 'bad') + '"><div class="in"><div class="head">' + P(ok ? 'celebrate' : 'sad', 'none', 62) + '<div><b>' + (ok ? '✓ +' + R.pts + ' точки' : R.pick === -1 ? '⏰ Времето изтече' : pick(BAD)) + '</b>' +
+      (ok ? '<span class="small" style="font-weight:800">Комбо ' + R.combo + ' · множител ×' + multOf(R.combo) + '</span>' : '<span class="small" style="font-weight:800">Комбото е нулирано — давай отначало!</span>') + '</div></div>' +
+      (!ok && it.d.why ? '<div class="exp">' + it.d.why + '</div>' : '') +
+      '<button class="btn block big ' + (ok ? 'ok' : 'bad') + '" id="primary" data-act="rapidNext">Следващ</button></div></div>';
   }
   return h;
 }
+
+/* ================= ТЕСТ И ШЕФЪТ НА БЛОКА ================= */
+function mockCfgHTML() {
+  var poolN = keysOf('bio', 'q').length + keysOf('chem', 'q').length, subN = keysOf(S.subj, 'q').length;
+  var h = modeHead('mh-dice', 'happy', 'clipboard', 'Пробен изпит', '🎲 Тест на случаен принцип', 'Отговорите се виждат чак след предаване — като на истинския изпит.') +
+    '<div class="card"><label class="fl">Предмет</label><div class="choice"><button class="' + (!U.mockBoth ? 'on' : '') + '" data-act="mockBoth" data-b="0">' + cur().icon + ' Само ' + esc(cur().short) + ' (' + subN + ')</button>' +
+    '<button class="' + (U.mockBoth ? 'on' : '') + '" data-act="mockBoth" data-b="1">🧬+⚗️ И двата (' + poolN + ')</button></div>' +
+    (!U.mockBoth ? '<div class="mt">' + subjToggle() + '</div>' : '') +
+    '<label class="fl mt">Брой въпроси</label><div class="choice">' + [10, 20, 30, 50].map(function (n) { return '<button class="' + (U.mockN === n ? 'on' : '') + '" data-act="mockN" data-n="' + n + '">' + n + '</button>'; }).join('') + '</div>' +
+    '<div class="between mt"><span class="tag">⏱️ ' + Math.round(U.mockN * 1.25) + ' минути</span><span class="tag xp">+' + XP.exam + ' XP за верен</span></div>' +
+    '<button class="btn block big mt" data-act="mockStart">🎲 Генерирай тест</button></div>';
+  if (S.mocks.length) h += '<div class="card"><h3 class="sec">Последни тестове</h3>' + S.mocks.slice(-8).reverse().map(function (m) {
+    return '<div class="mrow"><div>' + fmtDate(m.d) + ' · ' + (m.sid === 'both' ? '🧬+⚗️' : SUBJ[m.sid].icon) + ' ' + m.right + '/' + m.n + '</div>' + bar(pct(m.right, m.n), 'thin ' + (m.mark >= 5.5 ? 'ok' : m.mark >= 4 ? 'xp' : 'bad')) + '<div class="pct">' + m.mark.toFixed(2) + '</div></div>';
+  }).join('') + '</div>';
+  return h;
+}
+function bossPickHTML() {
+  var sub = cur();
+  var h = modeHead('mh-boss', 'hero', 'steth', 'Предизвикателство', '👑 Шефът на блока', BOSS_N + ' въпроса от блока, ' + BOSS_MIN + ' минути, без подсказки. Победа при 5.50+.') + subjToggle();
+  sub.order.forEach(function (b) {
+    var m = blockMastery(sub.id, b), bs = S.boss[sub.id + '|' + b] || { best: 0, beaten: false, n: 0 }, mastered = S.blocksMastered[sub.id + '|' + b];
+    h += '<div class="card"><div class="row" style="flex-wrap:nowrap">' + ring(m.pct, '<b>' + m.pct + '%</b>', 74, 'var(--ach)') + '<div style="flex:1;min-width:0"><div class="eyebrow">' + blockLabel(b) + '</div><b style="font-size:17px">' + esc(sub.blocks[b]) + '</b>' +
+      '<div class="row mt" style="gap:6px">' + (bs.beaten ? '<span class="tag ok">🏆 Победен</span>' : m.nq ? '<span class="tag bad">😈 Непобеден</span>' : '<span class="tag">💤 Скоро</span>') + (mastered ? '<span class="tag ach">Овладян</span>' : '') +
+      (bs.n ? '<span class="tag xp">Най-добра ' + bs.best.toFixed(2) + '</span>' : '') + '</div></div></div>' +
+      '<button class="btn block mt ' + (bs.beaten ? 'ach' : 'fire') + '" data-act="bossStart" data-b="' + b + '"' + (m.nq ? '' : ' disabled') + '>' + (m.nq ? (bs.beaten ? '↻ Реванш' : '⚔️ Предизвикай шефа') : 'Още няма въпроси') + '</button></div>';
+  });
+  return h;
+}
 function startExam(kind, list, minutes, block) {
-  stopTimer();
+  stopTimer(); closeOverlay();
+  U.v = kind;
   U.exam = { kind: kind, sid: kind === 'mock' && U.mockBoth ? 'both' : S.subj, block: block, list: list, ans: {}, at: 0, endAt: Date.now() + minutes * 60000, done: false, res: null };
   U.examAll = false;
   U.timer = setInterval(function () {
@@ -788,286 +1118,248 @@ function startExam(kind, list, minutes, block) {
     if (el) { el.textContent = mmss(left); el.classList.toggle('low', left < 120); }
     if (left <= 0) { toast('⏰ Времето изтече — тестът е предаден.'); submitExam(); }
   }, 1000);
+  render(); window.scrollTo(0, 0);
 }
 function examHTML() {
   var E = U.exam;
   if (E.done) return examResultHTML();
   var it = item(E.list[E.at]), nAns = Object.keys(E.ans).length;
-  var title = E.kind === 'boss' ? '👹 ' + esc(SUBJ[S.subj].blocks[E.block]) : '📝 Тест';
-  var h = '<div class="gamehead"><div><span class="lbl">' + title + '</span><span class="big">' + (E.at + 1) + '/' + E.list.length + '</span></div>' +
-    '<div><span class="lbl">остава</span><span class="big timer" id="clock">' + mmss((E.endAt - Date.now()) / 1000) + '</span></div>' +
-    '<div><span class="lbl">отговорени</span><span class="big">' + nAns + '</span></div><div class="grow"></div>' +
-    '<button class="btn sm" data-act="examSubmit">Предай</button></div>';
-  h += '<div class="card"><div class="eyebrow">' + esc(SUBJ[it.sid].short) + ' · ' + esc(it.t.title) + '</div><div class="q"><div class="qstem"><span class="qn">' + (E.at + 1) + '.</span>' + it.d.s + '</div><div class="opts">';
+  var h = '<div class="ghead"><button class="xbtn" data-act="examQuit">✕</button><div class="gstat"><small>' + (E.kind === 'boss' ? '👑 шеф' : '🎲 тест') + '</small><b>' + (E.at + 1) + '/' + E.list.length + '</b></div>' +
+    '<div class="gstat"><small>остава</small><b class="timer" id="clock">' + mmss((E.endAt - Date.now()) / 1000) + '</b></div><div class="gstat"><small>отговорени</small><b>' + nAns + '</b></div></div>' +
+    bar(pct(nAns, E.list.length), 'ach thin');
+  h += '<div class="small muted mt" style="font-weight:800">' + SUBJ[it.sid].icon + ' ' + esc(it.t.title) + '</div><div class="lq">' + it.d.s + '</div><div class="opts">';
   it.d.o.forEach(function (o, j) { h += '<button class="opt' + (E.ans[E.at] === j ? ' sel' : '') + '" data-act="examPick" data-j="' + j + '"><span class="k">' + LETTERS[j] + '</span><span>' + o + '</span></button>'; });
-  h += '</div></div><div class="between mt"><button class="btn ghost" data-act="examNav" data-d="-1"' + (E.at ? '' : ' disabled') + '>← Назад</button>' +
-    (E.at < E.list.length - 1 ? '<button class="btn" data-act="examNav" data-d="1">Напред →</button>' : '<button class="btn" data-act="examSubmit">Предай теста</button>') + '</div></div>';
-  h += '<div class="card tight"><div class="navgrid">' + E.list.map(function (_, i) { return '<button class="' + (E.ans[i] != null ? 'ans' : '') + (i === E.at ? ' cur' : '') + '" data-act="examGo" data-i="' + i + '">' + (i + 1) + '</button>'; }).join('') + '</div></div>';
+  h += '</div><div class="grid2 mt"><button class="btn ghost" data-act="examNav" data-d="-1"' + (E.at ? '' : ' disabled') + '>← Назад</button>' +
+    (E.at < E.list.length - 1 ? '<button class="btn" data-act="examNav" data-d="1">Напред →</button>' : '<button class="btn fire" data-act="examSubmit">Предай теста</button>') + '</div>';
+  h += '<div class="card tight mt"><div class="navgrid">' + E.list.map(function (_, i) { return '<button class="' + (E.ans[i] != null ? 'ans' : '') + (i === E.at ? ' cur' : '') + '" data-act="examGo" data-i="' + i + '">' + (i + 1) + '</button>'; }).join('') + '</div>' +
+    '<button class="btn block fire mt" data-act="examSubmit">Предай (' + nAns + '/' + E.list.length + ')</button></div>';
   return h;
 }
 function submitExam() {
   var E = U.exam; if (!E || E.done) return;
   stopTimer();
   var right = 0;
-  E.list.forEach(function (k, i) {
-    var it = item(k), ok = E.ans[i] === it.d.a;
-    if (ok) right++;
-    S.mcq[k] = ok ? 1 : 0;
-    record(k, ok);
-  });
-  var mark = markOf(right / E.list.length), xp = right * XP.exam, msg = '';
+  E.list.forEach(function (k, i) { var it = item(k), ok = E.ans[i] === it.d.a; if (ok) right++; S.mcq[k] = ok ? 1 : 0; record(k, ok); logAnswer(ok); });
+  var mark = markOf(right / E.list.length), xp = right * XP.exam, msg = '', win = false;
   E.done = true;
   if (E.kind === 'mock') {
     S.mocks.push({ d: today(), sid: E.sid, n: E.list.length, right: right, mark: mark });
     if (S.mocks.length > 40) S.mocks = S.mocks.slice(-40);
+    S.cnt.mocks++; if (mark >= 5.5) S.cnt.mock55++;
   } else {
     var bk = S.subj + '|' + E.block, b = S.boss[bk] || { best: 0, beaten: false, n: 0 };
     b.n++; b.best = Math.max(b.best, mark);
     if (mark >= 5.5) {
+      win = true; S.cnt.bossWins++;
       xp += b.beaten ? XP.bossAgain : XP.bossFirst;
-      msg = b.beaten ? 'Шефът е победен отново!' : 'ПОБЕДИ ШЕФА НА БЛОКА! +' + XP.bossFirst + ' XP бонус';
-      if (!b.beaten) toast('🏆 ' + msg, true);
+      msg = b.beaten ? 'Шефът е победен отново! +' + XP.bossAgain + ' XP' : '+' + XP.bossFirst + ' XP бонус за победата';
       b.beaten = true;
     }
     S.boss[bk] = b;
   }
-  E.res = { right: right, mark: mark, xp: xp, msg: msg };
-  activity(E.list.length, xp);
+  E.res = { right: right, mark: mark, xp: xp, msg: msg, win: win };
+  addXP(xp, E.list.length);
+  if (E.sid === 'both') { checkBlocks('bio'); checkBlocks('chem'); } else checkBlocks(E.sid);
+  if (win || mark >= 5.5) confetti();
   render(); window.scrollTo(0, 0);
 }
 function examResultHTML() {
   var E = U.exam, r = E.res, n = E.list.length, h;
   if (E.kind === 'boss') {
-    var hp = Math.max(0, 100 - pct(r.right, n)), win = r.mark >= 5.5;
-    h = '<div class="card"><div class="eyebrow">👹 Шефът на блока · ' + esc(SUBJ[S.subj].blocks[E.block]) + '</div><div class="boss"><div class="face">' + (win ? '💀' : '😈') + '</div><div style="flex:1">' +
-      '<b>' + (win ? 'Победа! ' + esc(r.msg) : 'Шефът оцеля. Нужна е оценка 5.50+, за да го победиш.') + '</b>' +
-      '<div class="small muted">Живот на шефа: ' + hp + '%</div><div class="bar bad mt"><i style="width:' + hp + '%"></i></div></div></div>';
-  } else h = '<div class="card"><div class="eyebrow">📝 Тест на случаен принцип — резултат</div>';
-  h += '<div class="row mt" style="gap:22px"><div class="result">' + r.mark.toFixed(2) + '</div><div><b>' + markWord(r.mark) + '</b><div class="muted">' + r.right + ' от ' + n + ' верни · +' + r.xp + ' XP</div></div></div>' +
-    '<div class="row mt"><button class="btn" data-act="' + (E.kind === 'boss' ? 'bossStart' : 'mockStart') + '" data-b="' + esc(E.block || '') + '">Нов опит</button>' +
-    '<button class="btn ghost" data-act="go" data-v="' + E.kind + '">Назад</button></div></div>';
+    var hp = Math.max(0, 100 - pct(r.right, n));
+    h = '<div class="results">' + P(r.win ? 'hero' : 'sad', 'steth') + '<h2>' + (r.win ? '🏆 Шефът е победен!' : '😈 Шефът оцеля…') + '</h2>' +
+      '<p class="muted" style="font-weight:700;margin-top:-8px">' + (r.win ? esc(r.msg) : 'Нужна е оценка 5.50+. Виж грешките по-долу и опитай пак — ще го събориш!') + '</p>' +
+      '<div class="small" style="font-weight:800">Живот на шефа: ' + hp + '%</div>' + bar(hp, 'bad') + '<div class="mt"></div>';
+  } else h = '<div class="results">' + P(r.mark >= 5.5 ? 'celebrate' : r.mark >= 4 ? 'happy' : 'wave', 'clipboard') + '<h2>' + (r.mark >= 5.5 ? '🎓 Отличен резултат!' : r.mark >= 4 ? '👏 Добра работа!' : '💪 Добро упражнение!') + '</h2>';
+  h += '<div class="rstats"><div class="rstat ok"><div class="h">Оценка</div><div class="v">' + r.mark.toFixed(2) + '</div></div><div class="rstat fire"><div class="h">Верни</div><div class="v">' + r.right + '/' + n + '</div></div>' +
+    '<div class="rstat xp"><div class="h">XP</div><div class="v">+' + r.xp + '</div></div></div><div class="tag ' + (r.mark >= 5.5 ? 'ok' : r.mark >= 4 ? 'xp' : 'bad') + '">' + markWord(r.mark) + '</div></div>' +
+    '<div class="grid2 mb"><button class="btn ghost" data-act="examBack">Назад</button><button class="btn" data-act="' + (E.kind === 'boss' ? 'bossStart' : 'mockStart') + '" data-b="' + esc(E.block || '') + '">↻ Нов опит</button></div>';
   h += '<div class="card"><div class="between mb"><h3 class="sec" style="margin:0">Разбор</h3><button class="linkbtn" data-act="examAll">' + (U.examAll ? 'само грешните' : 'покажи всички') + '</button></div>';
   var shown = 0;
   E.list.forEach(function (k, i) {
-    var it = item(k), pick = E.ans[i], ok = pick === it.d.a;
+    var it = item(k), p0 = E.ans[i], ok = p0 === it.d.a;
     if (ok && !U.examAll) return;
     shown++;
-    h += mcqHTML(k, it.d, i + 1, pick == null ? -1 : pick, 'noop');
+    h += '<div style="padding:12px 0;border-top:2px dashed var(--line)"><div style="font-weight:800;margin-bottom:8px">' + (i + 1) + '. ' + it.d.s + '</div><div class="opts">' +
+      it.d.o.map(function (o, j) { return '<div class="opt' + (j === it.d.a ? ' right' : j === p0 ? ' wrong' : '') + '"><span class="k">' + LETTERS[j] + '</span><span>' + o + '</span></div>'; }).join('') + '</div>' +
+      (it.d.why ? '<div class="small mt" style="color:var(--ink2)">' + (p0 == null ? '<b>Без отговор.</b> ' : '') + it.d.why + '</div>' : '') + '</div>';
   });
-  if (!shown) h += '<div class="muted">Нито една грешка. 🎉</div>';
-  return h + '</div>';
-}
-function bossPickHTML() {
-  var sub = cur(), h = '<div class="card"><div class="eyebrow">Режим</div><h2 class="title">👹 Шефът на блока</h2>' +
-    '<div class="muted">Всеки блок има шеф: ' + BOSS_N + ' случайни въпроса от блока за ' + BOSS_MIN + ' минути, без подсказки. Победа = оценка <b>5.50+</b> и бонус ' + XP.bossFirst + ' XP. ' +
-    'Лентата „овладяване“ събира верните ти отговори, познатите термини и резултатите от отворените въпроси в блока.</div></div><div class="grid2">';
-  sub.order.forEach(function (b) {
-    var m = blockMastery(S.subj, b), bs = S.boss[S.subj + '|' + b] || { best: 0, beaten: false, n: 0 };
-    h += '<div class="card" style="margin:0"><div class="between"><b style="font-family:var(--serif);font-size:17px">' + esc(sub.blocks[b]) + '</b><span style="font-size:28px">' + (bs.beaten ? '🏆' : m.nq ? '😈' : '💤') + '</span></div>' +
-      '<div class="small muted mt">Овладяване на блока</div><div class="row" style="flex-wrap:nowrap"><div class="bar v" style="flex:1"><i style="width:' + m.pct + '%"></i></div><b>' + m.pct + '%</b></div>' +
-      '<div class="small muted mt">' + m.nq + ' въпроса · опити: ' + bs.n + (bs.n ? ' · най-добра оценка <b>' + bs.best.toFixed(2) + '</b>' : '') + '</div>' +
-      '<button class="btn mt" data-act="bossStart" data-b="' + b + '"' + (m.nq ? '' : ' disabled') + '>' + (m.nq ? (bs.beaten ? 'Реванш' : 'Предизвикай шефа') : 'Скоро') + '</button></div>';
-  });
+  if (!shown) h += '<div class="center"><div style="width:90px;margin:0 auto">' + P('celebrate', 'none') + '</div><b>Нито една грешка! 🎉</b></div>';
   return h + '</div>';
 }
 
-/* ---------- ОТВОРЕНИ ВЪПРОСИ ---------- */
-function openListHTML() {
-  var sub = cur(), keys = keysOf(S.subj, 'o'), done = keys.filter(function (k) { return S.opens[k] && S.opens[k].best != null; }).length;
-  var h = '<div class="card"><div class="eyebrow">AI оценяване</div><h2 class="title">✍️ Отворени въпроси</h2>' +
-    '<div class="muted">Пишеш пълен текстов отговор, а Claude го проверява като строг изпитващ от МУ спрямо официалния ключ: процент, оценка, пропусната терминология и конкретни съвети. XP = половината от процента (при повторен опит — само за подобрението).</div>' +
-    (getApiKey() ? '' : '<div class="note mt">Няма API ключ — можеш да пишеш и да сравняваш с ключа сам. За AI оценка добави ключ в <button class="linkbtn" data-act="go" data-v="settings">Настройки</button>.</div>') +
-    '<div class="small muted mt">Оценени: ' + done + ' от ' + keys.length + '</div></div>';
-  sub.order.forEach(function (b) {
-    var ts = sub.topics.filter(function (t) { return t.block === b && t.open.length; });
-    if (!ts.length) return;
-    h += '<div class="blockhead">' + esc(sub.blocks[b]) + '</div><div class="tlist">';
-    ts.forEach(function (t) {
-      t.open.forEach(function (o, i) {
-        var k = K(S.subj, t.id, 'o', i), r = S.opens[k];
-        h += '<button class="trow" data-act="openSel" data-k="' + esc(k) + '" style="grid-template-columns:minmax(0,1fr) 90px"><span><span class="small muted" style="display:block">' + esc(t.title) + '</span>' + plain(o.p) + '</span>' +
-          '<span style="text-align:right">' + (r && r.best != null ? '<span class="tag ' + (r.best >= 80 ? 'ok' : r.best >= 50 ? 'warn' : 'bad') + '">' + r.best + '%</span>' : r && r.draft ? '<span class="tag">чернова</span>' : '<span class="tag">нов</span>') + '</span></button>';
-      });
-    });
-    h += '</div>';
-  });
-  return h;
-}
-function openHTML() {
-  var it = item(U.oKey);
-  if (!it) { U.oKey = null; return openListHTML(); }
-  var r = S.opens[it.key] || {}, g = U.grading[it.key] || {}, o = it.d;
-  var words = (r.draft || '').trim() ? (r.draft || '').trim().split(/\s+/).length : 0;
-  var h = '<div class="row mb"><button class="btn ghost sm" data-act="openBack">← Всички отворени въпроси</button><button class="btn ghost sm" data-act="topic" data-tid="' + esc(it.t.id) + '">📖 Към темата</button></div>';
-  h += '<div class="open"><div class="eyebrow" style="color:var(--violet)">' + esc(SUBJ[it.sid].short) + ' · ' + esc(it.t.title) + '</div><div class="prompt">' + o.p + '</div>';
-  if (o.cues && U.showCues[it.key]) h += '<div class="card tight"><b class="small">Подсказки (без отговорите):</b><ul class="facts">' + o.cues.map(function (c) { return '<li class="small">' + esc(c) + '</li>'; }).join('') + '</ul></div>';
-  h += '<textarea class="tin" id="openText" data-inp="draft" data-k="' + esc(it.key) + '" placeholder="Напиши пълен отговор със свързан текст и точни научни термини…">' + esc(r.draft || '') + '</textarea>' +
-    '<div class="between" style="margin-top:8px"><span class="small muted" id="wc">' + words + ' ' + pl(words, 'дума', 'думи') + '</span>' +
-    '<span class="small muted">Черновата се пази автоматично</span></div>' +
-    '<div class="row mt"><button class="btn violet" data-act="openGrade"' + (g.busy ? ' disabled' : '') + '>' + (g.busy ? '<span class="spin"></span> Оценявам…' : '🎓 Оцени с Claude') + '</button>' +
-    '<button class="btn ghost" data-act="openKey">' + (U.showKey[it.key] ? 'Скрий ключа' : 'Покажи ключа') + '</button>' +
-    (o.cues ? '<button class="btn ghost" data-act="openCues">' + (U.showCues[it.key] ? 'Скрий подсказките' : '💡 Подсказки') + '</button>' : '') +
-    '<button class="btn ghost" data-act="openModel"' + (U.model[it.key] && U.model[it.key].busy ? ' disabled' : '') + '>Образцов отговор</button></div>';
-  if (!getApiKey()) h += '<div class="note mt">За AI оценка добави своя Anthropic API ключ в <button class="linkbtn" data-act="go" data-v="settings">Настройки</button>.</div>';
-  if (g.err) h += '<div class="err mt">' + esc(g.err) + '</div>';
-  h += '</div>';
-  if (r.last) h += gradeHTML(r.last, r.best);
-  if (U.showKey[it.key]) h += '<div class="card"><h3 class="sec">Официален ключ — какво трябва да съдържа отговорът</h3><ul class="rub">' + o.must.map(function (m) { return '<li>' + m + '</li>'; }).join('') + '</ul></div>';
-  var md = U.model[it.key] || (r.model ? { text: r.model } : null);
-  if (md) h += '<div class="card"><h3 class="sec">Как звучи отговор за 6</h3>' + (md.busy ? '<span class="spin"></span> Пиша образеца…' : md.err ? '<div class="err">' + esc(md.err) + '</div>' : '<div class="model">' + esc(md.text) + '</div>') + '</div>';
-  return h;
-}
-function gradeHTML(g, best) {
-  var mark = markOf(g.score / 100), cls = g.score >= 80 ? 'ok' : g.score >= 50 ? 'warn' : 'bad';
-  function list(title, arr) { return arr && arr.length ? '<h4>' + title + '</h4><ul>' + arr.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : ''; }
-  return '<div class="grade"><div class="score"><div class="result">' + g.score + '%</div><div><span class="tag ' + cls + '">' + markWord(mark) + ' ' + mark.toFixed(2) + '</span>' +
-    (g.xp != null ? ' <span class="tag acc">+' + g.xp + ' XP</span>' : '') + (best != null ? '<div class="small muted" style="margin-top:4px">най-добър резултат: ' + best + '%</div>' : '') + '</div></div>' +
-    (g.summary ? '<p style="margin:12px 0 0">' + esc(g.summary) + '</p>' : '') +
-    (g.missed_terms && g.missed_terms.length ? '<h4>Пропусната / неточна терминология</h4><div class="chips">' + g.missed_terms.map(function (x) { return '<span class="chip">' + esc(x) + '</span>'; }).join('') + '</div>' : '') +
-    list('❌ Липсва в отговора', g.missed) + list('⚠️ Грешки', g.errors) + list('✅ Вярно покрито', g.covered) + list('💡 Как да стане за 6', g.advice) +
-    (g.at ? '<div class="small muted mt">Оценено на ' + esc(g.at) + (g.model ? ' · ' + esc(g.model) : '') + '</div>' : '') + '</div>';
-}
-function gradeOpen() {
-  var it = item(U.oKey); if (!it) return;
-  var r = S.opens[it.key] = S.opens[it.key] || {};
-  var txt = (r.draft || '').trim();
-  U.grading[it.key] = {};
-  if (!getApiKey()) { U.grading[it.key] = { err: 'Няма API ключ. Добави го в „Настройки“.' }; return render(); }
-  if (txt.length < 20) { U.grading[it.key] = { err: 'Отговорът е твърде кратък — напиши поне едно-две изречения.' }; return render(); }
-  U.grading[it.key] = { busy: true }; render();
-  var key = it.key;
-  claude({ system: examinerSystem(it.sid), prompt: gradePrompt(it, txt), schema: GRADE_SCHEMA, effort: 'medium' })
-    .then(function (res) {
-      var g = parseGrade(res.text);
-      if (!g) throw new ApiError('parse', 'Не успях да прочета оценката. Опитай отново.');
-      var prev = r.best == null ? 0 : r.best;
-      g.xp = Math.max(0, Math.round((g.score - prev) / 2));
-      g.at = today(); g.model = S.settings.model;
-      r.last = g; r.n = (r.n || 0) + 1; r.best = Math.max(r.best == null ? 0 : r.best, g.score);
-      record(key, g.score >= 60);
-      activity(1, g.xp);
-      U.grading[key] = {};
-      if (g.score >= 90) toast('🌟 Отличен отговор — ' + g.score + '%!', true);
-    })
-    .catch(function (e) { U.grading[key] = { err: e && e.message ? e.message : 'Неочаквана грешка.' }; })
-    .then(function () { if (U.v === 'open' && U.oKey === key) render(); });
-}
-function modelAnswer() {
-  var it = item(U.oKey); if (!it) return;
-  var key = it.key;
-  U.model[key] = { busy: true }; render();
-  var prompt = 'Напиши образцов писмен отговор за отлична оценка (6) на въпрос от конкурсния изпит по ' + (it.sid === 'chem' ? 'химия' : 'биология') + ' за медицински университет в България.\n\n' +
-    'ТЕМА: ' + plain(it.t.title) + '\nВЪПРОС: ' + plain(it.d.p) + '\n\nОтговорът трябва да покрива всички елементи:\n- ' + it.d.must.map(plain).join('\n- ') + '\n\n' +
-    'Изисквания: на български; точни научни термини; свързан текст в кратки абзаци, без заглавия, списъци и markdown; около 200–250 думи. Върни само самия отговор.';
-  claude({ prompt: prompt, effort: 'low', maxTokens: 4000 })
-    .then(function (res) {
-      var txt = res.text.replace(/\*\*/g, '').trim();
-      U.model[key] = { text: txt };
-      S.opens[key] = S.opens[key] || {}; S.opens[key].model = txt; save();
-    })
-    .catch(function (e) { U.model[key] = { err: e.message || 'Образецът не се зареди.' }; })
-    .then(function () { if (U.v === 'open' && U.oKey === key) render(); });
-}
-
-/* ---------- ГРЕШКИТЕ МИ ---------- */
+/* ================= ГРЕШКИТЕ МИ ================= */
 function mistakesHTML() {
-  var all = mistakes(S.subj), due = dueMistakes(S.subj), t0 = today();
-  var byType = { q: 0, t: 0, o: 0 };
-  all.forEach(function (k) { byType[item(k).type]++; });
-  var h = '<div class="card"><div class="eyebrow">Повторение с интервали</div><h2 class="title">Грешките ми</h2>' +
-    '<div class="muted">Всеки грешен отговор идва тук и се връща след 1, 3 и 7 дни. Три верни повторения на падежа — и е овладян.</div>' +
-    '<div class="grid4 mt">' + st(due.length, 'за днес') + st(byType.q, 'въпроса') + st(byType.t, 'термина') + st(byType.o, 'отворени') + '</div>' +
-    '<div class="row mt"><button class="btn" data-act="reviewStart" data-all="0"' + (due.length ? '' : ' disabled') + '>Повтори днешните (' + due.length + ')</button>' +
-    '<button class="btn ghost" data-act="reviewStart" data-all="1"' + (all.length ? '' : ' disabled') + '>Повтори всички сега (' + all.length + ')</button></div></div>';
-  if (!all.length) return h + '<div class="card muted">Нямаш грешки в ' + esc(cur().short) + '. Продължавай така! 🎉</div>';
+  var all = mistakes(S.subj), due = dueMistakes(S.subj), t0 = today(), by = { q: 0, t: 0, o: 0 };
+  all.forEach(function (k) { by[item(k).type]++; });
+  var h = modeHead('mh-heart', all.length ? 'happy' : 'celebrate', 'steth', 'Повторение с интервали', '❤️ Грешките ми', 'Всяка грешка се връща след 1, 3 и 7 дни. Три верни повторения — и е овладяна.') + subjToggle();
+  h += '<div class="stats mb">' + st('⏰', due.length, 'за днес') + st('✏️', by.q, 'въпроса') + st('🎯', by.t, 'термина') + st('💪', S.mastered, 'овладени общо') + '</div>';
+  h += '<div class="grid2 mb"><button class="btn big" data-act="reviewStart" data-all="0"' + (due.length ? '' : ' disabled') + '>▶ Днешните (' + due.length + ')</button>' +
+    '<button class="btn big ghost" data-act="reviewStart" data-all="1"' + (all.length ? '' : ' disabled') + '>Всички (' + all.length + ')</button></div>';
+  var weak = cur().topics.map(function (t) { var m = topicMastery(S.subj, t).pct; return { t: t, m: m, started: lessonDone(S.subj, t.id) || m > 0 }; })
+    .filter(function (x) { return x.started && x.m < MASTER; }).sort(function (a, b) { return a.m - b.m; }).slice(0, 4);
+  if (weak.length) h += '<div class="card"><h3 class="sec">🩹 Слаби места — упражнявай</h3>' + weak.map(function (x) {
+    return '<div class="mrow"><div>' + topicIcon(S.subj, x.t) + ' ' + esc(x.t.title) + '</div>' + bar(x.m, 'thin xp') + '<button class="btn sm" data-act="practice" data-tid="' + esc(x.t.id) + '" aria-label="Упражнявай">▶</button></div>';
+  }).join('') + '</div>';
+  if (!all.length) return h + '<div class="card center"><div style="width:120px;margin:0 auto">' + P('celebrate', 'steth') + '</div><b>Нямаш грешки в ' + esc(cur().short) + '!</b><div class="muted small">Д-р Панда е горд с теб. 🎉</div></div>';
   all.sort(function (a, b) { return S.srs[a].due < S.srs[b].due ? -1 : S.srs[a].due > S.srs[b].due ? 1 : S.srs[b].miss - S.srs[a].miss; });
-  h += '<div class="card">';
+  h += '<div class="blockhead">Всички грешки</div>';
   all.forEach(function (k) {
-    var it = item(k), r = S.srs[k], label = it.type === 'q' ? 'въпрос' : it.type === 't' ? 'термин' : 'отворен';
+    var it = item(k), r = S.srs[k], ic = it.type === 'q' ? '✏️' : it.type === 't' ? '🎯' : '🤖';
     var txt = it.type === 'q' ? plain(it.d.s) : it.type === 't' ? it.d[0] + ' — ' + plain(it.d[1]) : plain(it.d.p);
-    h += '<div class="mrow"><div><span class="tag ' + (it.type === 'q' ? 'acc' : it.type === 't' ? 'warn' : 'v') + '">' + label + '</span></div>' +
-      '<div><div class="txt">' + esc(txt) + '</div><div class="small muted">' + esc(it.t.title) + ' · грешки: ' + r.miss + ' · стъпка ' + r.step + '/' + SRS_STEPS.length + ' · ' +
-      (r.due <= t0 ? '<b style="color:var(--fire)">за днес</b>' : 'следващо: ' + fmtDate(r.due)) + '</div></div>' +
-      '<div class="row">' + (it.type === 'o' ? '<button class="btn sm ghost" data-act="openSel" data-k="' + esc(k) + '">Отвори</button>' : '') +
-      '<button class="linkbtn" data-act="mistakeDel" data-k="' + esc(k) + '">махни</button></div></div>';
+    h += '<div class="listrow"><span class="ic">' + ic + '</span><span class="tx"><b class="clamp">' + esc(txt) + '</b><small>' + esc(it.t.title) + ' · ✕' + r.miss + ' · ' + (r.due <= t0 ? '<span style="color:var(--fire-d)">за днес</span>' : 'на ' + fmtDate(r.due)) + '</small></span>' +
+      '<span class="row" style="flex-wrap:nowrap;gap:6px"><button class="btn sm" data-act="retryOne" data-k="' + esc(k) + '" title="Опитай пак">↻</button><button class="xbtn" style="font-size:18px" data-act="mistakeDel" data-k="' + esc(k) + '" title="Махни">✕</button></span></div>';
   });
-  return h + '</div>';
-  function st(n, l) { return '<div class="stat"><div class="n">' + n + '</div><div class="l">' + l + '</div></div>'; }
+  return h;
+  function st(i, n, l) { return '<div class="stat"><span class="i">' + i + '</span><div><b>' + n + '</b><small>' + l + '</small></div></div>'; }
 }
 
-/* ---------- НАСТРОЙКИ ---------- */
+/* ================= ПРОФИЛ ================= */
+function profileHTML() {
+  var L = levelOf(S.xp), rk = rankOf(L), nr = nextRankOf(L), st = streak();
+  var acc = pct(S.stats.correct, S.stats.answered), achN = Object.keys(S.ach).length;
+  var blocksTotal = 0; ['bio', 'chem'].forEach(function (sid) { SUBJ[sid].order.forEach(function (b) { if (blockMastery(sid, b).n) blocksTotal++; }); });
+  var h = '<div class="modehead mh-prof">' + P('hero', 'cap') + '<div style="flex:1;min-width:0"><div class="eyebrow" style="color:rgba(255,255,255,.85)">Профил</div><h2>' + rk[2] + ' ' + esc(rk[1]) + '</h2>' +
+    '<div style="font-weight:800">Ниво ' + L + ' · ' + S.xp + ' XP</div><div class="bar xp mt" style="background:rgba(255,255,255,.3)"><i style="width:' + pct(S.xp - xpForLevel(L), xpForLevel(L + 1) - xpForLevel(L)) + '%"></i></div>' +
+    '<div class="small" style="font-weight:700;margin-top:4px">' + (S.xp - xpForLevel(L)) + '/' + (xpForLevel(L + 1) - xpForLevel(L)) + ' XP до ниво ' + (L + 1) + (nr ? ' · ' + esc(nr[1]) + ' от ниво ' + nr[0] : '') + '</div></div></div>';
+  h += '<div class="card"><h3 class="sec">Медицинска кариера</h3><div class="rankline">' + RANKS.map(function (r) {
+    return '<div class="rankstep' + (L >= r[0] ? ' on' : '') + (r === rk ? ' cur' : '') + '"><div class="b">' + r[2] + '</div>' + esc(r[1]) + '<br><span class="muted">ниво ' + r[0] + '</span></div>';
+  }).join('') + '</div></div>';
+  h += '<div class="stats mb">' +
+    stt('⭐', S.xp, 'общо XP') + stt('🎯', todayXP() + '/' + goal(), 'днешна цел (XP)') + stt('🔥', st, 'текуща серия') + stt('🏅', Math.max(S.bestStreak, st), 'най-дълга серия') +
+    stt('✏️', S.stats.answered, 'отговора общо') + stt('✅', acc + '%', 'точност') +
+    stt('🧬', subjMastery('bio') + '%', 'биология') + stt('⚗️', subjMastery('chem') + '%', 'химия') +
+    stt('🏆', Object.keys(S.blocksMastered).length + '/' + blocksTotal, 'овладени блока') + stt('🎖️', achN + '/' + ACH.length, 'постижения') + '</div>';
+  h += '<div class="card"><div class="between mb"><h3 class="sec" style="margin:0">🏆 Постижения</h3><span class="tag ach">' + achN + '/' + ACH.length + '</span></div><div class="achgrid">' + ACH.map(function (a) {
+    var on = S.ach[a.id];
+    return '<div class="ach' + (on ? '' : ' off') + '"><div class="b">' + (on ? a.b : '🔒') + '</div><b>' + esc(a.t) + '</b><small>' + esc(a.d) + (on ? '<br>✓ ' + fmtDate(on) : '') + '</small></div>';
+  }).join('') + '</div></div>';
+  ['bio', 'chem'].forEach(function (sid) {
+    var sub = SUBJ[sid];
+    h += '<div class="card"><div class="between mb"><h3 class="sec" style="margin:0">' + sub.icon + ' ' + esc(sub.name) + '</h3><span class="tag acc">' + subjMastery(sid) + '%</span></div>' +
+      sub.order.map(function (b) {
+        var m = blockMastery(sid, b), bs = S.boss[sid + '|' + b];
+        return '<div class="mrow"><div>' + blockLabel(b) + ' · ' + esc(sub.blocks[b]) + (S.blocksMastered[sid + '|' + b] ? ' 🏆' : '') + (bs && bs.beaten ? ' 👑' : '') + '</div>' + bar(m.pct, 'thin ' + sid) + '<div class="pct">' + (m.n ? m.pct + '%' : '—') + '</div></div>';
+      }).join('') + '</div>';
+  });
+  h += '<div class="card"><h3 class="sec">📈 XP за последните 14 дни</h3>' + weekHTML(14) + '</div>';
+  if (S.mocks.length) h += '<div class="card"><h3 class="sec">🎲 История на тестовете</h3>' + S.mocks.slice(-10).reverse().map(function (m) {
+    return '<div class="mrow"><div>' + fmtDate(m.d) + ' · ' + (m.sid === 'both' ? '🧬+⚗️' : SUBJ[m.sid].icon) + ' ' + m.right + '/' + m.n + '</div>' + bar(pct(m.right, m.n), 'thin') + '<div class="pct">' + m.mark.toFixed(2) + '</div></div>';
+  }).join('') + '</div>';
+  return h;
+  function stt(i, n, l) { return '<div class="stat"><span class="i">' + i + '</span><div><b>' + n + '</b><small>' + l + '</small></div></div>'; }
+}
+
+/* ================= НАСТРОЙКИ ================= */
 function settingsHTML() {
   var key = getApiKey(), masked = key ? key.slice(0, 10) + '…' + key.slice(-4) : '';
-  var h = '<div class="card"><div class="eyebrow">Настройки</div><h2 class="title">⚙️ Настройки</h2><div class="muted">Всичко се пази само в този браузър. Няма акаунт и вход.</div></div>';
-  h += '<div class="card"><h3 class="sec">Anthropic API ключ</h3>' +
-    '<div class="small muted mb">Нужен е за AI оценяването на отворените въпроси. Вземи ключ от <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>. ' +
+  var h = modeHead('mh-set', 'happy', 'clipboard', 'Настройки', '⚙️ Настройки', 'Всичко се пази само в този браузър. Няма акаунт и вход.');
+  h += '<div class="card"><h3 class="sec">🔑 Anthropic API ключ</h3>' +
+    '<div class="small muted mb" style="font-weight:600">Нужен е за AI оценяването на отворените въпроси. Вземи ключ от <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>. ' +
     'Ключът се пази само в localStorage на този браузър и се изпраща единствено до api.anthropic.com. Не го въвеждай на чужд или споделен компютър.</div>' +
     (key ? '<div class="row mb"><span class="tag ok">✓ записан</span><code>' + esc(U.keyShown ? key : masked) + '</code><button class="linkbtn" data-act="keyShow">' + (U.keyShown ? 'скрий' : 'покажи') + '</button></div>' : '') +
     '<form data-form="keySave" autocomplete="off"><input class="tin" id="keyInput" type="password" placeholder="sk-ant-…" spellcheck="false">' +
     '<div class="row mt"><button class="btn" type="submit">Запази ключа</button>' +
-    (key ? '<button class="btn ghost" type="button" data-act="keyTest">Тествай връзката</button><button class="btn danger" type="button" data-act="keyDel">Изтрий ключа</button>' : '') + '</div></form>' +
+    (key ? '<button class="btn ghost" type="button" data-act="keyTest">Тествай</button><button class="btn bad" type="button" data-act="keyDel">Изтрий</button>' : '') + '</div></form>' +
     '<div id="keyMsg" class="mt"></div>' +
     '<label class="fl mt">Модел за оценяване</label><select class="tin" data-chg="model">' +
     MODELS.map(function (m) { return '<option value="' + m[0] + '"' + (S.settings.model === m[0] ? ' selected' : '') + '>' + esc(m[1]) + '</option>'; }).join('') + '</select></div>';
-  h += '<div class="card"><h3 class="sec">Дневна цел</h3><div class="small muted mb">Колко отговора на ден поддържат серията жива.</div><div class="choice">' +
-    [10, 15, 25, 40, 60].map(function (n) { return '<button class="' + (S.settings.goal === n ? 'on' : '') + '" data-act="goal" data-n="' + n + '">' + n + '</button>'; }).join('') + '</div></div>';
-  h += '<div class="card"><h3 class="sec">Рангове</h3><div class="grid2">' + RANKS.map(function (r) {
-    return '<div class="row" style="flex-wrap:nowrap"><span style="font-size:22px">' + r[2] + '</span><span><b>' + esc(r[1]) + '</b> <span class="small muted">от ' + r[0] + ' XP</span></span>' + (S.xp >= r[0] ? ' <span class="tag ok">✓</span>' : '') + '</div>';
-  }).join('') + '</div></div>';
-  h += '<div class="card"><h3 class="sec">Прогрес</h3><div class="small muted mb">Експортът не съдържа API ключа.</div><div class="row">' +
-    '<button class="btn ghost" data-act="export">⬇️ Експорт (JSON)</button>' +
-    '<label class="btn ghost" style="display:inline-block">⬆️ Импорт<input type="file" accept="application/json" data-chg="import" hidden></label>' +
-    '<button class="btn danger" data-act="reset">Изчисти целия прогрес</button></div></div>';
+  h += '<div class="card"><h3 class="sec">🔥 Дневна цел</h3><div class="small muted mb" style="font-weight:600">Колко XP на ден поддържат серията жива.</div><div class="choice">' +
+    [[10, 'Лека'], [20, 'Нормална'], [30, 'Сериозна'], [50, 'Интензивна'], [80, 'Изпитна сесия']].map(function (x) { return '<button class="' + (S.settings.goalXP === x[0] ? 'on' : '') + '" data-act="goal" data-n="' + x[0] + '">' + x[1] + ' · ' + x[0] + ' XP</button>'; }).join('') + '</div></div>';
+  h += '<div class="card"><h3 class="sec">🎮 Обучение</h3>' +
+    '<div class="toggle"><div><b>Свободна навигация</b><div class="small muted">Отключва всички теми и шефове в пътя</div></div><button class="sw' + (S.settings.freeNav ? ' on' : '') + '" data-act="toggle" data-k="freeNav" aria-label="Свободна навигация"></button></div>' +
+    '<div class="toggle"><div><b>Без анимации</b><div class="small muted">Спокоен режим — без конфети и движение</div></div><button class="sw' + (S.settings.calm ? ' on' : '') + '" data-act="toggle" data-k="calm" aria-label="Без анимации"></button></div></div>';
+  h += '<div class="card"><h3 class="sec">💾 Данни</h3><div class="small muted mb" style="font-weight:600">Експортът не съдържа API ключа.</div><div class="row">' +
+    '<button class="btn ghost" data-act="export">⬇️ Експорт</button>' +
+    '<label class="btn ghost">⬆️ Импорт<input type="file" accept="application/json" data-chg="import" hidden></label>' +
+    '<button class="btn bad" data-act="reset">Изчисти прогреса</button></div></div>';
   return h;
 }
 function keyMsg(html) { var el = document.getElementById('keyMsg'); if (el) el.innerHTML = html; }
 
 /* ================= ДЕЙСТВИЯ ================= */
 var ACT = {
-  subj: function (d) { if (S.subj === d.s) return; S.subj = d.s; U.scope = 'all'; U.oKey = null; U.run = null; U.rapid = null; U.exam = null; save(); go(U.v === 'topic' ? 'topics' : U.v); },
-  go: function (d) { if (d.v === 'open') U.oKey = null; U.run = null; go(d.v); },
-  topic: function (d) { go('topic', { tid: d.tid }); },
-  topicReset: function (d) { var t = topicById(S.subj, d.tid); t.q.forEach(function (_, i) { delete U.picks[K(S.subj, t.id, 'q', i)]; }); render(); },
-  tpick: function (d) {
-    var k = d.k, j = +d.j, it = item(k); if (U.picks[k] != null) return;
-    U.picks[k] = j;
-    var ok = j === it.d.a; S.mcq[k] = ok ? 1 : 0; record(k, ok); activity(1, ok ? XP.mcq : 0);
-    render();
+  go: function (d) { if (d.v === 'open') U.oKey = null; closeOverlay(); go(d.v); },
+  more: function () {
+    sheet('<h3 class="sec">Още</h3><div class="qa" style="margin:0">' + NAV.filter(function (n) { return n && ['rapid', 'terms', 'open', 'boss', 'mock', 'profile', 'settings'].indexOf(n[0]) >= 0; }).map(function (n) {
+      return '<button data-act="go" data-v="' + n[0] + '"><span class="i ic-go">' + n[1] + '</span><span>' + n[2] + '</span></button>';
+    }).join('') + '</div><button class="linkbtn" style="display:block;margin:16px auto 0" data-act="closeOv">Затвори</button>');
   },
-  noop: function () { },
+  closeOv: closeOverlay,
+  ovBg: function (d, el, e) { if (e.target === el) closeOverlay(); },
+  celClose: function () { closeOverlay(); },
+  subj: function (d) { if (S.subj === d.s) return; S.subj = d.s; U.scope = 'all'; U.oKey = null; save(); render(); },
+  node: function (d) { nodeSheet(d.tid); },
+  bossNode: function (d) {
+    var b = d.b, ts = cur().topics.filter(function (t) { return t.block === b; });
+    var unlocked = S.settings.freeNav || ts.every(function (t) { return lessonDone(S.subj, t.id); }) || blockMastery(S.subj, b).pct >= 50;
+    if (!unlocked) { toast('🔒 Завърши уроците в блока, за да предизвикаш шефа.'); return; }
+    bossSheet(b);
+  },
+  topic: function (d) { closeOverlay(); go('topic', { tid: d.tid }); },
+  topicFrom: function (d) { S.subj = d.sid; go('topic', { tid: d.tid }); },
+  lessonStart: function (d) { startLesson(S.subj, d.tid, 'lesson'); },
+  practice: function (d) { startLesson(S.subj, d.tid, 'practice'); },
+  lNext: function () {
+    var L = U.L; if (!L) return;
+    L.at++; L.st = freshSt();
+    if (L.at >= L.steps.length) finishLesson();
+    render(); window.scrollTo(0, 0);
+  },
+  skipLearn: function () { var L = U.L; while (L.at < L.steps.length && L.steps[L.at].kind === 'learn') L.at++; L.st = freshSt(); render(); },
+  lSel: function (d) { var L = U.L; if (L.st.checked) return; L.st.sel = +d.j; render(); },
+  lCheck: function () {
+    var L = U.L, step = L.steps[L.at];
+    if (L.st.checked) return;
+    if (step.kind === 'mcq') {
+      if (L.st.sel == null) return;
+      var it = item(step.key), ok = L.st.sel === it.d.a;
+      S.mcq[it.key] = ok ? 1 : 0;
+      lessonAnswer(ok, step.phase === 'challenge' ? XP.challenge : step.phase === 'retry' ? XP.retry : step.phase === 'review' ? XP.review : XP.practice, it.key);
+      render();
+    } else if (step.kind === 'term') termCheck();
+  },
+  lHint: function () { var st = U.L.st, inp = document.getElementById('termInput'); if (inp) st.given = inp.value; st.hint = Math.min(2, st.hint + 1); render(); },
+  lDunno: function () {
+    var L = U.L, it = item(L.steps[L.at].key), inp = document.getElementById('termInput');
+    L.st.given = inp && inp.value.trim() ? inp.value.trim() : '';
+    var prev = S.terms[it.key] || { n: 0, right: 0 };
+    S.terms[it.key] = { ok: false, n: prev.n + 1, right: prev.right };
+    lessonAnswer(false, 0, it.key); render();
+  },
+  lessonQuit: function () {
+    var L = U.L;
+    if (L && L.at > 0 && !confirm('Да излезеш ли от урока? Спечелените XP остават, но урокът няма да се брои за завършен.')) return;
+    go(L && L.tid ? L.sid : L && L.mode === 'review' ? 'mistakes' : L && L.mode === 'terms' ? 'terms' : 'home');
+  },
+  lessonExit: function () { var L = U.L; go(L.mode === 'lesson' || L.mode === 'practice' ? L.sid : L.mode === 'review' ? 'mistakes' : L.mode === 'terms' ? 'terms' : 'home'); },
   scope: function (d) { U.scope = d.s; render(); },
-  termsStart: function () { startTerms(keysOf(S.subj, 't', scopeFilter())); render(); },
-  termsAgain: function () { startTerms(keysOf(S.subj, 't', scopeFilter())); render(); window.scrollTo(0, 0); },
-  termsTopic: function (d) { U.scope = 't:' + d.tid; go('terms'); startTerms(keysOf(S.subj, 't', scopeFilter())); render(); },
-  termHint: function () { var st = U.run.st, inp = document.getElementById('termInput'); if (inp) st.given = inp.value; st.hint = Math.min(2, st.hint + 1); render(); },
-  termSkip: function () {
-    var R = U.run, it = item(R.list[R.at]), inp = document.getElementById('termInput');
-    R.st.given = ''; if (inp && inp.value.trim()) R.st.given = inp.value.trim();
-    S.terms[it.key] = { ok: false, n: ((S.terms[it.key] || {}).n || 0) + 1, right: (S.terms[it.key] || {}).right || 0 };
-    record(it.key, false); runAnswer(false, 0); render();
+  termsStart: function () { startRun('terms', shuffle(keysOf(S.subj, 't', scopeFilter())).slice(0, TERMS_N), 'Назови термина'); },
+  termsTopic: function (d) { U.scope = 't:' + d.tid; startRun('terms', shuffle(keysOf(S.subj, 't', scopeFilter())).slice(0, TERMS_N), 'Назови термина'); },
+  reviewStart: function (d) {
+    var list = shuffle(d.all === '1' ? mistakes(S.subj) : dueMistakes(S.subj));
+    if (!list.length) list = shuffle(d.all === '1' ? mistakes() : dueMistakes());
+    if (!list.length) { toast('Няма грешки за преговор 🎉'); return; }
+    S.subj = item(list[0]).sid;
+    startRun('review', list.filter(function (k) { return item(k).sid === S.subj; }).slice(0, REVIEW_N), 'Преговор на грешките');
   },
-  runPick: function (d) {
-    var R = U.run, it = item(R.list[R.at]); if (R.st.done) return;
-    var j = +d.j, ok = j === it.d.a; R.st.pick = j;
-    S.mcq[it.key] = ok ? 1 : 0; record(it.key, ok); runAnswer(ok, ok ? XP.mcq : 0); render();
-  },
-  runNext: function () { var R = U.run; R.at++; R.st = freshSt(); render(); window.scrollTo(0, 0); },
-  runQuit: function () { var R = U.run; R.list = R.list.slice(0, R.at + (R.st.done ? 1 : 0)); R.at = R.list.length; render(); },
-  rapidStart: function () { go('rapid'); startRapid(); render(); },
+  retryOne: function (d) { startRun('review', [d.k], 'Преговор'); },
+  mistakeDel: function (d) { delete S.srs[d.k]; save(); render(); },
+  rapidStart: function () { closeOverlay(); startRapid(); },
+  rapidMenu: function () { U.rapid = null; render(); },
   rapidPick: function (d) { rapidPick(+d.j); },
-  rapidNext: function () { var R = U.rapid; R.at++; R.pick = null; R.pts = 0; R.left = RAPID_SEC; render(); window.scrollTo(0, 0); if (R.at < R.list.length) rapidTimer(); },
+  rapidNext: function () { var R = U.rapid; R.at++; R.pick = null; R.pts = 0; R.left = rapidSec(R.at); render(); window.scrollTo(0, 0); if (R.at < R.list.length) rapidTimer(); },
   rapidQuit: function () { stopTimer(); var R = U.rapid; R.list = R.list.slice(0, R.at + (R.pick != null ? 1 : 0)); R.at = R.list.length; render(); },
   mockBoth: function (d) { U.mockBoth = d.b === '1'; render(); },
   mockN: function (d) { U.mockN = +d.n; render(); },
   mockStart: function () {
-    var pool = U.mockBoth ? keysOf('bio', 'q').concat(keysOf('chem', 'q')) : keysOf(S.subj, 'q');
-    var list = shuffle(pool).slice(0, U.mockN);
-    go('mock'); startExam('mock', list, Math.round(list.length * 1.25)); render();
+    var pool = U.mockBoth ? keysOf('bio', 'q').concat(keysOf('chem', 'q')) : keysOf(S.subj, 'q'), list = shuffle(pool).slice(0, U.mockN);
+    startExam('mock', list, Math.round(list.length * 1.25));
   },
   bossStart: function (d) {
     var b = d.b, pool = keysOf(S.subj, 'q', function (t) { return t.block === b; });
     if (!pool.length) return;
-    go('boss'); startExam('boss', shuffle(pool).slice(0, BOSS_N), BOSS_MIN, b); render();
+    startExam('boss', shuffle(pool).slice(0, BOSS_N), BOSS_MIN, b);
   },
   examPick: function (d) { var E = U.exam; E.ans[E.at] = +d.j; render(); },
   examNav: function (d) { var E = U.exam; E.at = Math.max(0, Math.min(E.list.length - 1, E.at + +d.d)); render(); window.scrollTo(0, 0); },
@@ -1077,22 +1369,15 @@ var ACT = {
     if (left && !confirm('Имаш ' + left + ' неотговорени ' + pl(left, 'въпрос', 'въпроса') + '. Да предам ли теста?')) return;
     submitExam();
   },
+  examQuit: function () { if (!confirm('Да прекратиш ли теста? Резултатът няма да се запише.')) return; var k = U.exam.kind; stopTimer(); U.exam = null; go(k); },
+  examBack: function () { go(U.exam.kind); },
   examAll: function () { U.examAll = !U.examAll; render(); },
-  openSel: function (d) { go('open', { oKey: d.k }); },
+  openSel: function (d) { closeOverlay(); var it = item(d.k); if (it) S.subj = it.sid; go('open', { oKey: d.k }); },
   openBack: function () { U.oKey = null; render(); },
-  openGrade: gradeOpen,
-  openKey: function () { U.showKey[U.oKey] = !U.showKey[U.oKey]; render(); },
-  openCues: function () { U.showCues[U.oKey] = !U.showCues[U.oKey]; render(); },
-  openModel: function () {
-    if (!getApiKey()) { U.grading[U.oKey] = { err: 'Образцовият отговор също се генерира от Claude — добави API ключ в „Настройки“.' }; return render(); }
-    modelAnswer();
-  },
-  reviewStart: function (d) {
-    var list = d.all === '1' ? mistakes(S.subj) : dueMistakes(S.subj);
-    U.run = { ctx: 'review', list: shuffle(list), at: 0, right: 0, wrong: 0, combo: 0, xp: 0, st: freshSt() };
-    render(); window.scrollTo(0, 0);
-  },
-  mistakeDel: function (d) { delete S.srs[d.k]; save(); render(); },
+  openGrade: function (d) { gradeOpen(d.k, d.ctx); },
+  openKey: function (d) { U.showKey[d.k] = !U.showKey[d.k]; render(); },
+  openCues: function (d) { U.showCues[d.k] = !U.showCues[d.k]; render(); },
+  openModel: function (d) { modelAnswer(d.k); },
   keyShow: function () { U.keyShown = !U.keyShown; render(); },
   keyDel: function () { if (!confirm('Да изтрия ли API ключа от този браузър?')) return; setApiKey(''); render(); toast('Ключът е изтрит.'); },
   keyTest: function (d, btn) {
@@ -1102,35 +1387,41 @@ var ACT = {
       .catch(function (e) { keyMsg('<div class="err">' + esc(e.message) + '</div>'); })
       .then(function () { btn.disabled = false; });
   },
-  goal: function (d) { S.settings.goal = +d.n; save(); render(); },
+  goal: function (d) { S.settings.goalXP = +d.n; save(); render(); },
+  toggle: function (d) { S.settings[d.k] = !S.settings[d.k]; save(); render(); },
   export: function () {
     var blob = new Blob([JSON.stringify(S, null, 1)], { type: 'application/json' });
-    var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'mu-progress-' + today() + '.json';
+    var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'medpanda-progress-' + today() + '.json';
     document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
   },
   reset: function () {
-    if (!confirm('Да изчистя ли ЦЕЛИЯ прогрес — XP, серия, грешки, отговори? API ключът остава.')) return;
-    S = freshState(); saveNow(); U.picks = {}; go('home'); toast('Прогресът е изчистен.');
+    if (!confirm('Да изчистя ли ЦЕЛИЯ прогрес — XP, серия, грешки, постижения? API ключът остава.')) return;
+    S = freshState(); saveNow(); go('home'); toast('Прогресът е изчистен.');
   }
 };
+function termCheck() {
+  var L = U.L, step = L.steps[L.at], it = item(step.key), inp = document.getElementById('termInput'), val = inp ? inp.value.trim() : '';
+  if (!val || L.st.checked) { if (inp) { inp.classList.remove('shake'); void inp.offsetWidth; inp.classList.add('shake'); } return; }
+  var c = checkTerm(val, it.d[0]);
+  L.st.given = val; L.st.typo = c.typo;
+  var base = step.phase === 'retry' ? XP.retry : c.typo ? XP.termTypo : XP.term;
+  var xp = c.ok ? Math.max(3, base - L.st.hint * XP.hint) : 0;
+  var prev = S.terms[it.key] || { n: 0, right: 0 };
+  S.terms[it.key] = { ok: c.ok, n: prev.n + 1, right: prev.right + (c.ok ? 1 : 0) };
+  if (c.ok) S.cnt.terms++;
+  lessonAnswer(c.ok, xp, it.key); render();
+}
 document.addEventListener('click', function (e) {
   var b = e.target.closest('[data-act]'); if (!b || b.disabled) return;
   var fn = ACT[b.dataset.act]; if (!fn) return;
-  e.preventDefault(); fn(b.dataset, b, e);
+  if (b.tagName !== 'LABEL') e.preventDefault();
+  fn(b.dataset, b, e);
 });
 document.addEventListener('submit', function (e) {
   var f = e.target.closest('[data-form]'); if (!f) return;
   e.preventDefault();
-  if (f.dataset.form === 'termCheck') {
-    var R = U.run, it = item(R.list[R.at]), inp = document.getElementById('termInput'), val = inp ? inp.value.trim() : '';
-    if (!val || R.st.done) return;
-    var c = checkTerm(val, it.d[0]);
-    R.st.given = val; R.st.typo = c.typo;
-    var xp = c.ok ? Math.max(3, (c.typo ? XP.termTypo : XP.term) - R.st.hint * XP.hint) : 0;
-    var prev = S.terms[it.key] || { n: 0, right: 0 };
-    S.terms[it.key] = { ok: c.ok, n: prev.n + 1, right: prev.right + (c.ok ? 1 : 0) };
-    record(it.key, c.ok); runAnswer(c.ok, xp); render();
-  } else if (f.dataset.form === 'keySave') {
+  if (f.dataset.form === 'termCheck') termCheck();
+  else if (f.dataset.form === 'keySave') {
     var v = document.getElementById('keyInput').value.trim();
     if (!v) return;
     if (!/^sk-ant-/.test(v) && !confirm('Ключът не започва с „sk-ant-“. Да го запазя ли все пак?')) return;
@@ -1155,7 +1446,7 @@ document.addEventListener('change', function (e) {
     rd.onload = function () {
       try {
         var s = JSON.parse(rd.result);
-        if (!s || typeof s !== 'object' || s.v !== 1) throw new Error();
+        if (!s || typeof s !== 'object' || !(s.v >= 1)) throw new Error();
         if (!confirm('Да заменя ли текущия прогрес с този от файла?')) return;
         localStorage.setItem(LS_STATE, JSON.stringify(s)); S = load(); go('home'); toast('Прогресът е зареден.');
       } catch (err) { toast('Файлът не е валиден експорт.'); }
@@ -1164,19 +1455,26 @@ document.addEventListener('change', function (e) {
   }
 });
 document.addEventListener('keydown', function (e) {
-  if (e.target.matches && e.target.matches('input, textarea, select')) return;
-  if (U.v === 'rapid' && U.rapid && U.rapid.at < U.rapid.list.length) {
-    var it = item(U.rapid.list[U.rapid.at]);
-    if (U.rapid.pick == null && /^[1-6]$/.test(e.key) && +e.key <= it.d.o.length) { e.preventDefault(); rapidPick(+e.key - 1); }
+  var ovOpen = !!document.getElementById('overlay').innerHTML;
+  if (e.key === 'Escape' && ovOpen) { closeOverlay(); return; }
+  var inField = e.target.matches && e.target.matches('input, textarea, select');
+  if (e.key === 'Enter' && !inField) {
+    var pb = (ovOpen ? document.getElementById('overlay') : app).querySelector('#primary');
+    if (pb && !pb.disabled && document.activeElement !== pb && (ovOpen || U.v === 'lesson' || U.v === 'rapid')) { e.preventDefault(); pb.click(); }
+    return;
   }
-  if (U.v === 'mock' || U.v === 'boss') {
-    var E = U.exam;
-    if (E && !E.done) {
-      if (/^[1-6]$/.test(e.key) && +e.key <= item(E.list[E.at]).d.o.length) { E.ans[E.at] = +e.key - 1; render(); }
-      else if (e.key === 'ArrowRight') ACT.examNav({ d: 1 });
-      else if (e.key === 'ArrowLeft') ACT.examNav({ d: -1 });
-    }
+  if (inField || ovOpen) return;
+  var n = /^[1-6]$/.test(e.key) ? +e.key - 1 : -1;
+  if (n < 0) {
+    if (U.exam && !U.exam.done && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) ACT.examNav({ d: e.key === 'ArrowRight' ? 1 : -1 });
+    return;
   }
+  if (U.v === 'lesson' && U.L && !U.L.done) {
+    var step = U.L.steps[U.L.at];
+    if (step && step.kind === 'mcq' && !U.L.st.checked && n < item(step.key).d.o.length) { U.L.st.sel = n; render(); }
+  } else if (U.v === 'rapid' && U.rapid && U.rapid.at < U.rapid.list.length && U.rapid.pick == null) {
+    if (n < item(U.rapid.list[U.rapid.at]).d.o.length) rapidPick(n);
+  } else if (U.exam && !U.exam.done && n < item(U.exam.list[U.exam.at]).d.o.length) { U.exam.ans[U.exam.at] = n; render(); }
 });
 
 render();
