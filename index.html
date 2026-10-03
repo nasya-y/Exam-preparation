@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>МУ Подготовка — Биология и Химия</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,400;7..72,600&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body data-subj="bio">
+<header class="top">
+  <div class="topbar">
+    <div class="brand">МУ <span>· подготовка</span></div>
+    <div class="subj" id="subj">
+      <button data-act="subj" data-s="bio">Биология за МУ</button>
+      <button data-act="subj" data-s="chem">Химия</button>
+    </div>
+    <div class="grow"></div>
+    <div class="hstat" id="hstat"></div>
+  </div>
+  <nav class="modes" id="modes">
+    <button data-act="go" data-v="home">Начало</button>
+    <button data-act="go" data-v="topics">Теми</button>
+    <button data-act="go" data-v="terms">Назови термина</button>
+    <button data-act="go" data-v="rapid">Бърз огън</button>
+    <button data-act="go" data-v="mock">Тест на случаен принцип</button>
+    <button data-act="go" data-v="boss">Шефът на блока</button>
+    <button data-act="go" data-v="open">Отворени въпроси</button>
+    <button data-act="go" data-v="mistakes">Грешките ми</button>
+    <button data-act="go" data-v="settings">Настройки</button>
+  </nav>
+</header>
+<main id="app"></main>
+<div id="toasts" aria-live="polite"></div>
+
+<script src="js/data-biology.js"></script>
+<script src="js/data-chemistry.js"></script>
+<script src="js/data-custom.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
