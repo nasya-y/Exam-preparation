@@ -545,6 +545,9 @@ function render() {
   else if (v === 'profile') h = profileHTML();
   else if (v === 'settings') h = settingsHTML();
   app.innerHTML = h;
+  var rail = railFor(v);
+  document.body.classList.toggle('hasrail', !!rail);
+  document.getElementById('rail').innerHTML = rail;
   var inp = document.getElementById('termInput');
   if (inp) inp.focus();
   else { var pb = document.getElementById('primary'); if (pb && !pb.disabled && !document.getElementById('overlay').innerHTML) pb.focus({ preventScroll: true }); }
@@ -569,6 +572,47 @@ function modeHead(cls, mood, acc, eyebrow, title, sub) {
     (sub ? '<div style="font-weight:700;opacity:.95;font-size:15px;margin-top:4px">' + sub + '</div>' : '') + '</div></div>';
 }
 
+/* ================= ДЕСЕН ПАНЕЛ (лаптоп) ================= */
+var WIDE = window.matchMedia ? matchMedia('(min-width:1180px)') : { matches: false };
+function wide() { return WIDE.matches; }
+if (WIDE.addEventListener) WIDE.addEventListener('change', function () { render(); });
+function railFor(v) {
+  if (!wide()) return '';
+  var runs = (v === 'rapid' && U.rapid) || ((v === 'mock' || v === 'boss') && U.exam);
+  if (runs || ['home', 'bio', 'chem', 'topic', 'mistakes', 'terms', 'rapid', 'mock', 'boss', 'open'].indexOf(v) < 0) return '';
+  var h = goalCardHTML() + rankCardHTML();
+  if (v === 'bio' || v === 'chem' || v === 'topic') {
+    var sub = cur();
+    h += '<div class="card"><h4>' + sub.icon + ' Блокове</h4>' + sub.order.map(function (b) {
+      var m = blockMastery(sub.id, b), bs = S.boss[sub.id + '|' + b];
+      return '<div class="small" style="font-weight:800;margin-top:8px">' + blockLabel(b) + ' · ' + esc(sub.blocks[b]) + (S.blocksMastered[sub.id + '|' + b] ? ' 🏆' : '') + (bs && bs.beaten ? ' 👑' : '') +
+        '</div><div class="between" style="flex-wrap:nowrap"><div style="flex:1">' + bar(m.pct, 'thin ' + sub.id) + '</div><b class="small">' + (m.n ? m.pct + '%' : '—') + '</b></div>';
+    }).join('') + '</div>';
+  } else {
+    h += '<div class="card"><h4>📈 Последните 7 дни</h4>' + weekHTML(7) + '</div>';
+  }
+  var achN = Object.keys(S.ach).length;
+  h += '<div class="card"><div class="between"><h4 style="margin:0">🏆 Постижения</h4><button class="linkbtn" data-act="go" data-v="profile">' + achN + '/' + ACH.length + '</button></div><div class="railach mt">' +
+    ACH.slice(0, 12).map(function (a) { return '<span class="' + (S.ach[a.id] ? '' : 'off') + '" title="' + esc(a.t + ' — ' + a.d) + '">' + (S.ach[a.id] ? a.b : '🔒') + '</span>'; }).join('') + '</div></div>';
+  h += '<div class="card"><h4>⌨️ Клавишни комбинации</h4><div class="kbdrow">' +
+    '<span class="kbd">1–4</span><span>избор на отговор</span><span class="kbd">Enter</span><span>провери / продължи</span>' +
+    '<span class="kbd">← →</span><span>навигация в тест</span><span class="kbd">Esc</span><span>изход / затвори</span></div></div>';
+  return h;
+}
+function goalCardHTML() {
+  var txp = todayXP(), g = goal(), st = streak();
+  return '<div class="card"><div class="goal">' + ring(pct(Math.min(txp, g), g), '<div><b>' + pct(Math.min(txp, g), g) + '%</b><small>' + txp + '/' + g + ' XP</small></div>', 96, 'var(--fire)') +
+    '<div style="flex:1;min-width:0"><div class="eyebrow">Днешната цел</div><h3>🔥 ' + st + ' ' + pl(st, 'ден', 'дни') + ' серия</h3>' +
+    '<div class="goaltxt mt">' + (txp >= g ? '✓ Целта е изпълнена — серията продължава!' : 'Днешна цел: ' + g + ' XP') + '</div>' +
+    '<div class="small muted" style="font-weight:700">Най-дълга серия: ' + Math.max(S.bestStreak, st) + ' ' + pl(Math.max(S.bestStreak, st), 'ден', 'дни') + '</div></div></div></div>';
+}
+function rankCardHTML() {
+  var L = levelOf(S.xp), rk = rankOf(L), nr = nextRankOf(L), lp = pct(S.xp - xpForLevel(L), xpForLevel(L + 1) - xpForLevel(L));
+  return '<div class="card"><div class="row" style="flex-wrap:nowrap">' + P('happy', 'cap', 76) + '<div style="flex:1;min-width:0"><div class="eyebrow">Твоят ранг</div><h3 style="font-size:20px">' + rk[2] + ' ' + esc(rk[1]) + '</h3>' +
+    '<div class="between small" style="font-weight:800;margin:6px 0 4px"><span>Ниво ' + L + '</span><span class="muted">' + (S.xp - xpForLevel(L)) + '/' + (xpForLevel(L + 1) - xpForLevel(L)) + ' XP</span></div>' + bar(lp, 'xp') +
+    (nr ? '<div class="small muted mt" style="font-weight:700">Следващ ранг: ' + nr[2] + ' ' + esc(nr[1]) + ' (още ' + (xpForLevel(nr[0]) - S.xp) + ' XP)</div>' : '<div class="small mt">Достигна най-високия ранг! 🏅</div>') + '</div></div></div>';
+}
+
 /* ================= НАЧАЛО ================= */
 function recommendation() {
   var due = dueMistakes();
@@ -584,11 +628,7 @@ function homeHTML() {
   var say = txp === 0 ? 'Д-р Панда още дреме… Събуди го с първия урок за деня! 😴' : txp >= g ? 'Целта за днес е изпълнена! Серията е спасена 🎉' : 'Още ' + (g - txp) + ' XP до днешната цел. Давай!';
   var h = '<div class="hero"><div class="in">' + P(mood, 'steth') + '<div><h2>' + hello + '</h2><div style="font-weight:700;opacity:.95">' + rk[2] + ' ' + esc(rk[1]) + ' · Ниво ' + L + '</div>' +
     '<div class="bubble">' + say + '</div></div></div></div>';
-  /* днешна цел */
-  h += '<div class="card"><div class="goal">' + ring(gp, '<div><b>' + gp + '%</b><small>' + Math.min(txp, 9999) + '/' + g + ' XP</small></div>', 96, 'var(--fire)') +
-    '<div style="flex:1;min-width:0"><div class="eyebrow">Днешната цел</div><h3>🔥 ' + st + ' ' + pl(st, 'ден', 'дни') + ' серия</h3>' +
-    '<div class="goaltxt mt">' + (txp >= g ? '✓ Целта е изпълнена — серията продължава!' : 'Днешна цел: ' + g + ' XP') + '</div>' +
-    '<div class="small muted" style="font-weight:700">Най-дълга серия: ' + Math.max(S.bestStreak, st) + ' ' + pl(Math.max(S.bestStreak, st), 'ден', 'дни') + '</div></div></div></div>';
+  if (!wide()) h += goalCardHTML();
   /* препоръка */
   var r = recommendation();
   h += '<div class="reco"><div class="between"><div style="min-width:0"><div class="k">' + r.k + '</div><h3>' + esc(r.title) + '</h3><div class="small muted" style="font-weight:700">' + esc(r.sub) + '</div></div>' +
@@ -601,18 +641,14 @@ function homeHTML() {
     qa('go', 'data-v="boss"', 'ic-boss', '👑', 'Шефът на блока', 'Победи блока') +
     qa('go', 'data-v="mock"', 'ic-dice', '🎲', 'Случаен тест', 'Пробен изпит') +
     qa('go', 'data-v="mistakes"', 'ic-go', '❤️', 'Грешките ми', dueMistakes().length + ' за днес') + '</div>';
-  /* ранг */
-  var lp = pct(S.xp - xpForLevel(L), xpForLevel(L + 1) - xpForLevel(L));
-  h += '<div class="card"><div class="row" style="flex-wrap:nowrap">' + P('happy', 'cap', 76) + '<div style="flex:1;min-width:0"><div class="eyebrow">Твоят ранг</div><h3 style="font-size:21px">' + rk[2] + ' ' + esc(rk[1]) + '</h3>' +
-    '<div class="between small" style="font-weight:800;margin:6px 0 4px"><span>Ниво ' + L + '</span><span class="muted">' + (S.xp - xpForLevel(L)) + '/' + (xpForLevel(L + 1) - xpForLevel(L)) + ' XP</span></div>' + bar(lp, 'xp') +
-    (nr ? '<div class="small muted mt" style="font-weight:700">Следващ ранг: ' + nr[2] + ' ' + esc(nr[1]) + ' (ниво ' + nr[0] + ', още ' + (xpForLevel(nr[0]) - S.xp) + ' XP)</div>' : '<div class="small mt">Достигна най-високия ранг! 🏅</div>') + '</div></div></div>';
+  if (!wide()) h += rankCardHTML();
   /* предмети */
   h += '<div class="subjcards">' + ['bio', 'chem'].map(function (sid) {
     var m = subjMastery(sid), done = SUBJ[sid].topics.filter(function (t) { return lessonDone(sid, t.id); }).length;
     return '<button class="subjcard ' + sid + '" data-act="go" data-v="' + sid + '">' + ring(m, '<b>' + m + '%</b>', 62) + '<div><b class="t">' + SUBJ[sid].icon + ' ' + SUBJ[sid].short + '</b><small>' + done + '/' + SUBJ[sid].topics.length + ' урока</small></div></button>';
   }).join('') + '</div>';
   /* седмица */
-  h += '<div class="card"><div class="between"><h3 class="sec" style="margin:0">Последните 7 дни</h3><span class="tag xp">⭐ ' + S.xp + ' XP общо</span></div>' + weekHTML(7) + '</div>';
+  if (!wide()) h += '<div class="card"><div class="between"><h3 class="sec" style="margin:0">Последните 7 дни</h3><span class="tag xp">⭐ ' + S.xp + ' XP общо</span></div>' + weekHTML(7) + '</div>';
   return h;
   function qa(act, attr, ic, i, t, s) { return '<button data-act="' + act + '" ' + attr + '><span class="i ' + ic + '">' + i + '</span><span>' + t + '<small>' + s + '</small></span></button>'; }
 }
@@ -648,7 +684,7 @@ function pathHTML(sid) {
       var stIcon = st === 'locked' ? '🔒' : st === 'done' ? '✓' : st === 'prog' ? '🟡' : '⚪';
       var stText = st === 'locked' ? '🔒 Заключена' : st === 'done' ? '🟢 Овладяна' : st === 'prog' ? '🟡 В процес' : '⚪ Не е започната';
       h += '<div class="nodewrap' + (isCur ? ' hasbub' : '') + '" style="transform:translateX(' + off + 'px)">' + (isCur ? '<div class="startbub">' + (lessonDone(sid, t.id) ? 'ПРОДЪЛЖИ' : 'ЗАПОЧНИ') + '</div>' : '') +
-        '<button class="node ' + st + (isCur ? ' cur' : '') + '" data-act="node" data-tid="' + esc(t.id) + '" aria-label="' + esc(t.title) + '">' + (st === 'locked' ? '🔒' : topicIcon(sid, t)) +
+        '<button class="node ' + st + (isCur ? ' cur' : '') + '" data-act="node" data-tid="' + esc(t.id) + '" aria-label="' + esc(t.title) + '" title="' + esc(t.title + ' — ' + stText.replace(/^\S+ /, '') + (st !== 'locked' ? ', ' + tm.pct + '%' : '')) + '">' + (st === 'locked' ? '🔒' : topicIcon(sid, t)) +
         (st !== 'locked' ? '<span class="st">' + stIcon + '</span>' : '') + '</button>' +
         '<div class="nlabel"><b>' + esc(t.title) + '</b>' + (st !== 'locked' ? bar(tm.pct, 'thin ' + (st === 'done' ? 'ok' : st === 'prog' ? 'xp' : '')) : '') +
         '<small>' + stText + (st !== 'locked' ? ' · ' + tm.pct + '% · ' + tm.qok + '/' + tm.qn + ' въпроса' : '') + '</small></div>' +
@@ -776,7 +812,7 @@ function lessonHTML() {
     if (L.at === 0) h += '<div class="coach">' + P('wave', SUBJ[sid].acc) + '<div class="say">' + pick(['Нека започнем! Прочети внимателно — после ще те питам. 😉', 'Ново знание на хоризонта! Готов ли си?', 'Кратко обяснение, после практика. Да тръгваме!']) + '</div></div>';
     h += '<div class="learncard"><h3 class="lt">' + esc(step.title) + '</h3>' + step.html + '</div>';
     var hasLearnAfter = L.steps.slice(L.at + 1).some(function (s) { return s.kind === 'learn'; });
-    bottom = '<div class="fbar"><div class="in"><button class="btn block big" id="primary" data-act="lNext">Разбрах — продължи</button>' +
+    bottom = '<div class="fbar"><div class="in"><button class="btn block big" id="primary" data-act="lNext">Разбрах — продължи<span class="kbd">Enter</span></button>' +
       (hasLearnAfter && L.mode === 'lesson' && lessonDone(sid, L.tid) ? '<button class="linkbtn" style="display:block;margin:10px auto 0" data-act="skipLearn">Пропусни теорията</button>' : '') + '</div></div>';
   } else if (step.kind === 'mcq') {
     if (step.phase === 'challenge' && !st.checked) h += '<div class="coach">' + P('think', SUBJ[sid].acc, 64) + '<div class="say">По-труден въпрос — помисли добре! (+' + XP.challenge + ' XP)</div></div>';
@@ -790,7 +826,7 @@ function lessonHTML() {
     });
     h += '</div>';
     bottom = st.checked ? fbarHTML(st.ok, st.msg, st.xp, (it.d.why ? '<div>' + it.d.why + '</div>' : '') + (it.d.trap ? '<div class="trap"><b>Капан:</b> ' + it.d.trap + '</div>' : ''))
-      : '<div class="fbar"><div class="in"><button class="btn block big ok" id="primary" data-act="lCheck"' + (st.sel == null ? ' disabled' : '') + '>Провери</button></div></div>';
+      : '<div class="fbar"><div class="in"><button class="btn block big ok" id="primary" data-act="lCheck"' + (st.sel == null ? ' disabled' : '') + '>Провери<span class="kbd">Enter</span></button></div></div>';
   } else if (step.kind === 'term') {
     var term = it.d[0], def = it.d[1];
     h += '<div class="small muted" style="font-weight:800">Кой е терминът? · ' + esc(it.t.title) + '</div><div class="defcard">' + maskDef(def, term) + '</div>';
@@ -798,7 +834,7 @@ function lessonHTML() {
       if (st.hint) { var w = termAnswers(term)[0] || '', show = st.hint === 1 ? 1 : Math.min(3, w.length); h += '<div class="hintline">' + esc(w.slice(0, show).toUpperCase()) + w.slice(show).replace(/[^\s-]/g, '_') + '</div>'; }
       h += '<form data-form="termCheck" autocomplete="off"><input id="termInput" class="tin" placeholder="Напиши термина…" value="' + esc(st.given) + '" spellcheck="false" autocapitalize="off"></form>' +
         '<div class="row mt"><button class="btn ghost sm" data-act="lHint"' + (st.hint >= 2 ? ' disabled' : '') + '>💡 Подсказка (−' + XP.hint + ' XP)</button><button class="btn ghost sm" data-act="lDunno">Не знам</button></div>';
-      bottom = '<div class="fbar"><div class="in"><button class="btn block big ok" id="primary" data-act="lCheck">Провери</button></div></div>';
+      bottom = '<div class="fbar"><div class="in"><button class="btn block big ok" id="primary" data-act="lCheck">Провери<span class="kbd">Enter</span></button></div></div>';
     } else {
       bottom = fbarHTML(st.ok, st.msg, st.xp, (st.given ? '<div>Ти написа: <b>' + esc(st.given) + '</b></div>' : '') + '<div>Терминът е: <b>' + esc(term) + '</b></div>' + (st.typo ? '<div class="trap"><b>Внимавай с правописа</b> — на изпита се търси точният термин.</div>' : ''));
     }
@@ -814,7 +850,7 @@ function fbarHTML(ok, msg, xp, body) {
   return '<div class="fbar slide ' + (ok ? 'good' : 'bad') + '"><div class="in"><div class="head">' + P(ok ? 'celebrate' : 'sad', ok ? 'none' : 'steth', 62) +
     '<div><b>' + (ok ? '✓ ' : '') + esc(msg) + '</b>' + (ok && xp ? '<span class="tag xp">+' + xp + ' XP</span>' : !ok ? '<span class="small" style="font-weight:800">Ще се върнем към това след малко 💪</span>' : '') + '</div></div>' +
     (body ? '<div class="exp">' + body + '</div>' : '') +
-    '<button class="btn block big ' + (ok ? 'ok' : 'bad') + '" id="primary" data-act="lNext">Продължи</button></div></div>';
+    '<button class="btn block big ' + (ok ? 'ok' : 'bad') + '" id="primary" data-act="lNext">Продължи<span class="kbd">Enter</span></button></div></div>';
 }
 function lessonAnswer(ok, xp, key) {
   var L = U.L, step = L.steps[L.at];
@@ -1075,7 +1111,7 @@ function rapidHTML() {
     h += '<div class="fbar slide ' + (ok ? 'good' : 'bad') + '"><div class="in"><div class="head">' + P(ok ? 'celebrate' : 'sad', 'none', 62) + '<div><b>' + (ok ? '✓ +' + R.pts + ' точки' : R.pick === -1 ? '⏰ Времето изтече' : pick(BAD)) + '</b>' +
       (ok ? '<span class="small" style="font-weight:800">Комбо ' + R.combo + ' · множител ×' + multOf(R.combo) + '</span>' : '<span class="small" style="font-weight:800">Комбото е нулирано — давай отначало!</span>') + '</div></div>' +
       (!ok && it.d.why ? '<div class="exp">' + it.d.why + '</div>' : '') +
-      '<button class="btn block big ' + (ok ? 'ok' : 'bad') + '" id="primary" data-act="rapidNext">Следващ</button></div></div>';
+      '<button class="btn block big ' + (ok ? 'ok' : 'bad') + '" id="primary" data-act="rapidNext">Следващ<span class="kbd">Enter</span></button></div></div>';
   }
   return h;
 }
@@ -1456,7 +1492,12 @@ document.addEventListener('change', function (e) {
 });
 document.addEventListener('keydown', function (e) {
   var ovOpen = !!document.getElementById('overlay').innerHTML;
-  if (e.key === 'Escape' && ovOpen) { closeOverlay(); return; }
+  if (e.key === 'Escape') {
+    if (ovOpen) { closeOverlay(); return; }
+    if (U.v === 'lesson' && U.L) { if (U.L.done) ACT.lessonExit(); else ACT.lessonQuit(); return; }
+    if (U.v === 'rapid' && U.rapid && U.rapid.at < U.rapid.list.length) { ACT.rapidQuit(); return; }
+    if (U.exam && !U.exam.done) { ACT.examQuit(); return; }
+  }
   var inField = e.target.matches && e.target.matches('input, textarea, select');
   if (e.key === 'Enter' && !inField) {
     var pb = (ovOpen ? document.getElementById('overlay') : app).querySelector('#primary');
