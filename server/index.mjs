@@ -85,6 +85,12 @@ async function api(req, res, route) {
   try { body = await readJson(req); }
   catch (e) { return e.message === 'size' ? send(res, 413, { error: 'Заявката е твърде голяма.' }) : send(res, 400, { error: 'Невалидно JSON тяло.' }); }
 
+  if (route === '/api/claude/logout') {
+    if (!claude) return send(res, 200, { backend: true, loggedIn: false, authKind: 'none', connected: false, unavailable: claudeLoadError });
+    console.log('[вход] изход от Claude абонамента');
+    return send(res, 200, await claude.logout());
+  }
+
   if (route === '/api/claude/test') {
     if (!claude) return send(res, 200, { backend: true, loggedIn: false, authKind: 'none', connected: false, unavailable: claudeLoadError });
     return send(res, 200, await claude.testConnection(modelOf(body)));

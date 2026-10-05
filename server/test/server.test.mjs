@@ -57,3 +57,10 @@ test('невалидни заявки се отхвърлят', async () => {
   assert.equal((await fetch(URL0 + '/api/grade', { method: 'POST', headers: H, body: 'x'.repeat(70000) })).status, 413);
   assert.equal((await fetch(URL0 + '/api/grade', { method: 'POST', headers: { 'X-MedPanda': '1', 'Content-Type': 'text/plain' }, body: '{}' })).status, 400);
 });
+
+test('изходът от Claude минава само през защитения API', async () => {
+  assert.equal((await fetch(URL0 + '/api/claude/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).status, 403);
+  const r = await fetch(URL0 + '/api/claude/logout', { method: 'POST', headers: H, body: '{}' });
+  assert.equal(r.status, 200);
+  assert.equal((await r.json()).connected, false);
+});

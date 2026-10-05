@@ -422,6 +422,7 @@ function apiCall(url, body, timeoutMs) {
 }
 function applyStatus(j) {
   U.ai = { state: j.connected ? 'connected' : 'disconnected', loggedIn: !!j.loggedIn, authKind: j.authKind || 'none',
+    apiKeyVar: j.apiKeyVar === 'ANTHROPIC_AUTH_TOKEN' ? 'ANTHROPIC_AUTH_TOKEN' : 'ANTHROPIC_API_KEY',
     lastCheck: j.lastCheck || null, unavailable: j.unavailable || null };
 }
 function refreshAI(test) {
@@ -433,15 +434,34 @@ function refreshAI(test) {
     .then(function () { U.ai.busy = false; if (['settings', 'open', 'home', 'lesson'].indexOf(U.v) >= 0) render(); });
 }
 function aiReady() { return U.ai.state === 'connected'; }
-var AUTH_KIND = { subscription: 'Claude абонамент (Pro/Max)', apiKey: 'API ключ от средата на сървъра', cloud: 'облачен доставчик', none: '' };
-function aiStatusHTML() {
-  var a = U.ai, dot, txt;
-  if (a.busy || a.state === 'checking') { dot = '<span class="spin"></span>'; txt = 'Проверявам…'; }
-  else if (a.state === 'offline') { dot = '⚪'; txt = 'Локалният сървър не работи'; }
-  else if (a.state === 'connected') { dot = '🟢'; txt = 'Свързан' + (AUTH_KIND[a.authKind] ? ' · ' + AUTH_KIND[a.authKind] : ''); }
-  else if (a.loggedIn) { dot = '🟠'; txt = 'Има вход, но последната проверка е неуспешна'; }
-  else { dot = '🔴'; txt = 'Не е свързан'; }
-  return '<span class="aistatus">' + dot + ' <b>' + esc(txt) + '</b></span>';
+/* Какъв вход използва AI оценяването — показва се само ВИДЪТ, никога данни за вход. */
+function aiView() {
+  var a = U.ai, why = '';
+  if (a.busy || a.state === 'checking') return { cls: 'checking', icon: '🔄', title: 'Проверка на Claude...', desc: '' };
+  if (a.state === 'offline') {
+    return { cls: 'off', icon: '⚪', title: 'Claude AI — недостъпен', desc: 'Ще бъде използвано локално оценяване.',
+      why: BACKEND ? 'Локалният сървър не отговаря — стартирай го с „npm run dev“.' : 'Приложението е отворено като файл — стартирай „npm run dev“ и отвори http://localhost:5178.' };
+  }
+  if (a.lastCheck && !a.lastCheck.ok) why = 'Последна проверка: ' + (a.lastCheck.error || 'неуспешна');
+  if (a.authKind === 'apiKey') {
+    return { cls: 'key', icon: '🔑', title: 'Anthropic API — използва се API ключ',
+      desc: 'AI оценяването използва ' + a.apiKeyVar + ', а не Claude Pro.', why: why };
+  }
+  if (a.authKind === 'cloud') {
+    return { cls: 'key', icon: '☁️', title: 'Облачен доставчик — не Claude Pro',
+      desc: 'AI оценяването използва облачен доставчик (Bedrock / Vertex / Foundry), а не Claude Pro.', why: why };
+  }
+  if (a.authKind === 'subscription' && a.state === 'connected') {
+    return { cls: 'ok', icon: '🟢', title: 'Claude Pro — свързан', desc: 'AI оценяването използва вашия Claude Pro акаунт.' };
+  }
+  return { cls: 'off', icon: '⚪', title: 'Claude AI — недостъпен', desc: 'Ще бъде използвано локално оценяване.',
+    why: why || (a.unavailable ? a.unavailable : 'Няма вход в Claude. Натисни „Вход в Claude“.') };
+}
+function aiStatusHTML() { var v = aiView(); return '<span class="aistatus ' + v.cls + '">' + v.icon + ' <b>' + esc(v.title) + '</b></span>'; }
+function aiBoxHTML() {
+  var v = aiView();
+  return '<div class="aibox ' + v.cls + '"><div class="ic">' + v.icon + '</div><div><b>' + esc(v.title) + '</b>' +
+    (v.desc ? '<div>' + esc(v.desc) + '</div>' : '') + (v.why ? '<div class="small" style="margin-top:4px;opacity:.85">' + esc(v.why) + '</div>' : '') + '</div></div>';
 }
 /* Задължителни термини: само термините от темата, които присъстват в официалния ключ. */
 function requiredTermsFor(it) {
@@ -1302,16 +1322,16 @@ function profileHTML() {
 function settingsHTML() {
   var a = U.ai;
   var h = modeHead('mh-set', 'happy', 'clipboard', 'Настройки', '⚙️ Настройки', 'Прогресът се пази само в този браузър. Няма акаунт и вход в приложението.');
-  h += '<div class="card"><h3 class="sec">🤖 Claude AI</h3>' +
-    '<div class="row mb">Статус: ' + aiStatusHTML() + '</div>' +
-    '<div class="small muted mb" style="font-weight:600">Използва вашия Claude акаунт чрез локалния Claude Agent SDK. ' +
-    'Входът се прави в терминала чрез официалната страница на Anthropic; браузърът и това приложение никога не виждат паролата, ключа или токена ви.</div>' +
-    (a.state === 'offline' ? '<div class="note mb">' + (BACKEND ? 'Локалният сървър не отговаря. Стартирай го с „npm run dev“.' : 'Приложението е отворено като файл. За Claude стартирай „npm install“ и „npm run dev“, после отвори http://localhost:5178.') + '</div>' : '') +
-    (a.unavailable ? '<div class="note mb">' + esc(a.unavailable) + '</div>' : '') +
-    (a.lastCheck && !a.lastCheck.ok ? '<div class="err mb">Последна проверка: ' + esc(a.lastCheck.error || 'неуспешна') + '</div>' : '') +
-    (a.lastCheck && a.lastCheck.ok ? '<div class="small mb" style="font-weight:700;color:var(--ok-d)">✓ Последната заявка към Claude е успешна.</div>' : '') +
-    '<div class="row"><button class="btn ach" data-act="aiConnect">🔗 Свържи Claude</button>' +
-    '<button class="btn ghost" data-act="aiTest"' + (a.busy || !BACKEND ? ' disabled' : '') + '>Провери връзката</button></div>' +
+  var subLogged = a.authKind === 'subscription' && a.loggedIn, apiKeyMode = a.authKind === 'apiKey';
+  h += '<div class="card"><h3 class="sec">🤖 Claude AI</h3>' + aiBoxHTML() +
+    '<div class="row mt">' +
+    '<button class="btn ghost" data-act="aiTest"' + (a.busy || !BACKEND || a.state === 'offline' ? ' disabled' : '') + '>Провери връзката</button>' +
+    (!(subLogged && a.state === 'connected') && !apiKeyMode ? '<button class="btn ach" data-act="aiConnect">🔗 Вход в Claude</button>' : '') +
+    (subLogged ? '<button class="btn bad" data-act="aiLogout"' + (a.busy ? ' disabled' : '') + '>Изход от Claude</button>' : '') + '</div>' +
+    (apiKeyMode ? '<div class="note mt">За да използваш Claude Pro вместо API ключа: махни <code>' + esc(a.apiKeyVar) + '</code> от средата и рестартирай сървъра. ' +
+      'В PowerShell: <code>Remove-Item Env:' + esc(a.apiKeyVar) + '</code> (за текущия прозорец); ако е зададена трайно — от „Environment Variables“ в Windows.</div>' : '') +
+    (a.lastCheck && a.lastCheck.ok && a.state === 'connected' ? '<div class="small mt" style="font-weight:700;color:var(--ok-d)">✓ Последната заявка към Claude е успешна.</div>' : '') +
+    '<div class="small muted mt" style="font-weight:600">Тук се показва само <b>кой</b> начин за вход се използва. Приложението никога не показва и не пази ключове, токени или данни за вход — входът се пази от Claude Code на компютъра ти.</div>' +
     '<label class="fl mt">Модел за оценяване</label><select class="tin" data-chg="model">' +
     MODEL_CHOICES.map(function (m) { return '<option value="' + m[0] + '"' + (S.settings.model === m[0] ? ' selected' : '') + '>' + esc(m[1]) + '</option>'; }).join('') + '</select>' +
     '<div class="small muted mt" style="font-weight:600">Без връзка с Claude отворените въпроси се оценяват локално по ключа (с ясен етикет „Локално оценяване“).</div></div>';
@@ -1327,20 +1347,18 @@ function settingsHTML() {
   return h;
 }
 function connectSheet() {
-  var h = '<div class="row" style="flex-wrap:nowrap">' + P('wave', 'steth', 76) + '<div><h3 style="font-size:21px">🔗 Свържи Claude</h3><div class="small muted" style="font-weight:700">Еднократна настройка, после само „Провери връзката“.</div></div></div>';
-  if (!BACKEND) {
-    h += '<ol class="mt" style="padding-left:22px;line-height:1.7"><li>Отвори терминал в папката на проекта.</li><li>Изпълни <code>npm install</code> (само първия път).</li>' +
-      '<li>Изпълни <code>npm run claude:login</code> и влез със своя Claude Pro акаунт.</li><li>Изпълни <code>npm run dev</code> и отвори <b>http://localhost:5178</b>.</li></ol>';
-  } else {
-    h += '<ol class="mt" style="padding-left:22px;line-height:1.7"><li>Отвори <b>нов</b> терминал в папката на проекта (сървърът може да продължи да работи).</li>' +
-      '<li>Изпълни: <code>npm run claude:login</code> <button class="linkbtn" data-act="copyCmd" data-c="npm run claude:login">копирай</button></li>' +
-      '<li>Ще се отвори официалната страница за вход на Anthropic. Влез със своя Claude Pro акаунт.</li>' +
-      '<li>Върни се тук и натисни „Провери връзката“.</li></ol>' +
-      '<div class="note mt">Входът става изцяло на страницата на Anthropic и се пази от Claude Code на компютъра ти — не в браузъра и не в проекта. ' +
-      'Ако в терминала на сървъра е зададен <code>ANTHROPIC_API_KEY</code>, ще се използва той (платено API), а не абонаментът.</div>' +
-      '<button class="btn block big mt" id="primary" data-act="aiTest"' + (U.ai.busy ? ' disabled' : '') + '>Провери връзката</button>';
-  }
-  h += '<button class="linkbtn" style="display:block;margin:14px auto 0" data-act="closeOv">Затвори</button>';
+  var h = '<div class="row" style="flex-wrap:nowrap">' + P('wave', 'steth', 76) + '<div><h3 style="font-size:21px">🔗 Вход в Claude</h3><div class="small muted" style="font-weight:700">С твоя Claude Pro акаунт, чрез официалния вход на Anthropic.</div></div></div>';
+  h += '<ol class="mt" style="padding-left:22px;line-height:1.75">' +
+    (BACKEND ? '' : '<li>Отвори терминал (PowerShell) в папката на проекта и изпълни <code>npm install</code> (само първия път).</li>') +
+    '<li>Отвори ' + (BACKEND ? '<b>нов</b> ' : '') + 'прозорец на PowerShell в папката на проекта' + (BACKEND ? ' (сървърът може да продължи да работи в другия)' : '') + '.</li>' +
+    '<li>Изпълни: <code>npm run claude:login</code> <button class="linkbtn" data-act="copyCmd" data-c="npm run claude:login">копирай</button></li>' +
+    '<li>Отваря се страницата за вход на Anthropic в браузъра. Избери вход с <b>Claude акаунт</b> и влез със своя Claude Pro акаунт. ' +
+    'Ако браузърът покаже код, постави го в PowerShell при „Paste code here if prompted“.</li>' +
+    '<li>Когато в PowerShell пише „Login successful“, ' + (BACKEND ? 'върни се тук и натисни „Провери връзката“.' : 'изпълни <code>npm run dev</code> и отвори <b>http://localhost:5178</b>.') + '</li></ol>' +
+    '<div class="note mt">Входът се прави изцяло на страницата на Anthropic. Това приложение не вижда паролата ти и не пази данни за вход. ' +
+    'Ако е зададен <code>ANTHROPIC_API_KEY</code>, Claude Code ще използва него вместо Claude Pro — статусът ще покаже „🔑 Anthropic API“.</div>' +
+    (BACKEND ? '<button class="btn block big mt" id="primary" data-act="aiTest"' + (U.ai.busy ? ' disabled' : '') + '>Провери връзката</button>' : '') +
+    '<button class="linkbtn" style="display:block;margin:14px auto 0" data-act="closeOv">Затвори</button>';
   sheet(h);
 }
 
@@ -1447,6 +1465,12 @@ var ACT = {
   openModel: function (d) { modelAnswer(d.k); },
   aiConnect: function () { connectSheet(); },
   aiTest: function () { closeOverlay(); refreshAI(true); },
+  aiLogout: function () {
+    if (!confirm('Да изляза ли от Claude акаунта на този компютър? Отворените въпроси ще се оценяват локално, докато не влезеш отново.')) return;
+    U.ai.busy = true; render();
+    apiCall('/api/claude/logout', {}, 40000).then(function (j) { applyStatus(j); toast('Излезе от Claude.'); }, function () { U.ai = { state: 'offline' }; })
+      .then(function () { U.ai.busy = false; render(); });
+  },
   copyCmd: function (d) {
     try { navigator.clipboard.writeText(d.c).then(function () { toast('📋 Копирано: ' + d.c); }, function () { toast(d.c); }); } catch (e) { toast(d.c); }
   },

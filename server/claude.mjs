@@ -12,6 +12,7 @@ import { mkdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { runClaudeCli } from './claude-cli.mjs';
+import { classifyAuth } from './auth-kind.mjs';
 import { validateGrade, buildGradePrompt, GRADE_SCHEMA, SYSTEM_PROMPT } from './grading.mjs';
 
 /* Празна работна папка: Claude няма инструменти и не вижда файловете на проекта. */
@@ -95,28 +96,35 @@ function modelOpt(model) {
 /* Статус: дали има вход (по официалното `claude auth status`) + последната реална проверка. */
 export async function getStatus({ fresh = false } = {}) {
   if (!fresh && statusCache && Date.now() - statusCache.at < 30_000) return statusCache.value;
-  let login = { loggedIn: false, authMethod: 'none' };
+  let cli = { loggedIn: false };
   try {
     const out = await runClaudeCli(['auth', 'status', '--json'], { capture: true, timeoutMs: 20_000 });
     const j = JSON.parse(out);
-    login = { loggedIn: !!j.loggedIn, authMethod: String(j.authMethod || 'none'), apiProvider: String(j.apiProvider || '') };
+    /* взимаме само етикети; пътища, имейли и други полета не се пазят и не се връщат */
+    cli = { loggedIn: !!j.loggedIn, authMethod: String(j.authMethod || ''), apiProvider: String(j.apiProvider || ''), hasApiKeySource: !!j.apiKeySource };
   } catch {
-    login = { loggedIn: false, authMethod: 'unknown' };
+    cli = { loggedIn: false };
   }
-  const m = login.authMethod.toLowerCase();
-  const authKind = !login.loggedIn ? 'none'
-    : /api.?key/.test(m) ? 'apiKey'
-    : login.apiProvider && login.apiProvider !== 'firstParty' ? 'cloud'
-    : 'subscription';
+  const auth = classifyAuth(cli, process.env);
   const value = {
     backend: true,
-    loggedIn: login.loggedIn,
-    authKind,                                  // subscription | apiKey | cloud | none
-    connected: login.loggedIn && (!lastCheck || lastCheck.ok),
+    loggedIn: auth.loggedIn,
+    authKind: auth.authKind,                   // subscription | apiKey | cloud | none
+    apiKeyVar: auth.apiKeyVar,                 // само ИМЕТО на променливата, никога стойността
+    connected: auth.loggedIn && (!lastCheck || lastCheck.ok),
     lastCheck
   };
   statusCache = { at: Date.now(), value };
   return value;
+}
+
+/* Изход от Claude абонамента — официалното `claude auth logout`. API ключ в средата не се засяга. */
+export function logout() {
+  return serialize(async () => {
+    try { await runClaudeCli(['auth', 'logout'], { capture: true, timeoutMs: 30_000 }); } catch { /* статусът по-долу показва резултата */ }
+    lastCheck = null; statusCache = null;
+    return getStatus({ fresh: true });
+  });
 }
 
 /* Реална минимална заявка — „Провери връзката“. */
