@@ -504,3 +504,4 @@ code{font-family:var(--mono);font-size:.9em;background:var(--card2);padding:1px 
 @media (max-width:370px){.chip.lvl{display:none}}
 body.calm *,body.calm *::before,body.calm *::after{animation:none!important;transition:none!important}
 @media (prefers-reduced-motion: reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+.aistatus{display:inline-flex;align-items:center;gap:4px;font-weight:700}

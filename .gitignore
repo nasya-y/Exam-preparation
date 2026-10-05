@@ -1,0 +1,22 @@
+# Зависимости
+node_modules/
+
+# Тайни и локални настройки — НИКОГА не се качват в GitHub
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.credentials.json
+credentials.json
+*oauth*token*
+.claude/
+.anthropic/
+*.local.json
+
+# Логове и временни файлове
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+coverage/

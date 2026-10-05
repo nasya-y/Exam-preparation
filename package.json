@@ -1,0 +1,20 @@
+{
+  "name": "medpanda-local",
+  "version": "1.0.0",
+  "private": true,
+  "description": "МедПанда — локална подготовка за МУ по биология и химия с AI оценяване чрез Claude Agent SDK",
+  "scripts": {
+    "dev": "node server/index.mjs",
+    "start": "node server/index.mjs",
+    "claude:login": "node server/claude-cli.mjs auth login",
+    "claude:status": "node server/claude-cli.mjs auth status --text",
+    "claude:logout": "node server/claude-cli.mjs auth logout",
+    "test": "node --test \"server/test/*.test.mjs\""
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.289"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
